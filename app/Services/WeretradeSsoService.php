@@ -113,20 +113,24 @@ class WeretradeSsoService
 
         $displayName = $name ?: explode('@', $email)[0];
 
+        $primaryAccount = Account::first();
+
         $user = User::create([
             'name' => $displayName,
             'email' => $email,
             'password' => Hash::make(Str::random(32)),
             'email_verified_at' => now(),
             'current_role' => 'admin',
+            'account_id' => $primaryAccount?->id,
         ]);
 
-        $account = Account::create([
-            'user_id' => $user->id,
-            'name' => "{$user->name}'s Team",
-        ]);
-
-        $user->forceFill(['account_id' => $account->id])->saveQuietly();
+        if (! $primaryAccount) {
+            $account = Account::create([
+                'user_id' => $user->id,
+                'name' => "weretrade Team",
+            ]);
+            $user->forceFill(['account_id' => $account->id])->saveQuietly();
+        }
 
         $this->ensureWorkspaceAccess($user);
 
@@ -140,10 +144,26 @@ class WeretradeSsoService
      */
     public function ensureWorkspaceAccess(User $user): void
     {
-        $workspaces = Workspace::all();
+        $primaryAccount = Account::first();
+        if ($primaryAccount && $user->account_id !== $primaryAccount->id) {
+            $user->forceFill(['account_id' => $primaryAccount->id])->saveQuietly();
+        }
+
+        $workspaces = Workspace::where('account_id', $user->account_id)->get();
+        if ($workspaces->isEmpty()) {
+            $workspaces = Workspace::all();
+        }
+
         foreach ($workspaces as $workspace) {
             if (! $workspace->members()->where('user_id', $user->id)->exists()) {
                 $workspace->members()->attach($user->id, ['role' => 'admin']);
+            }
+        }
+
+        if (! $user->current_workspace_id || ! Workspace::where('id', $user->current_workspace_id)->exists()) {
+            $firstWorkspace = $workspaces->first();
+            if ($firstWorkspace) {
+                $user->forceFill(['current_workspace_id' => $firstWorkspace->id])->saveQuietly();
             }
         }
     }
