@@ -71,9 +71,10 @@ class WeretradeSsoService
         }
 
         // 2. Check weretrade session cookie or Bearer JWT or query param
-        $token = $request->cookie('session')
+        $token = $request->query('token')
+            ?? $request->query('session')
+            ?? $request->cookie('session')
             ?? $request->bearerToken()
-            ?? $request->query('token')
             ?? $request->header('x-session-token');
 
         if ($token) {
@@ -84,6 +85,9 @@ class WeretradeSsoService
                     $name = $payload['name'] ?? $payload['display_name'] ?? explode('@', $email)[0];
                     return $this->findOrCreateUser($email, $name);
                 }
+                Log::warning('weretrade SSO: Token valid but email invalid/missing in payload', ['payload' => $payload]);
+            } else {
+                Log::warning('weretrade SSO: Token signature verification failed');
             }
         }
 
