@@ -4,16 +4,13 @@ import {
     IconAffiliate,
     IconAlertTriangle,
     IconBolt,
-    IconBrandDiscord,
     IconCalendar,
     IconChartBar,
     IconChevronRight,
     IconClock,
     IconFileCheck,
     IconFileText,
-    IconGift,
     IconHash,
-    IconLifebuoy,
     IconPencil,
     IconPhoto,
     IconPlugConnected,
@@ -28,7 +25,6 @@ import {
     index as postsIndex,
 } from '@/actions/App/Http/Controllers/App/PostController';
 import NavMain from '@/components/NavMain.vue';
-import NavSupport from '@/components/NavSupport.vue';
 import NotificationBell from '@/components/NotificationBell.vue';
 import SidebarOnboarding from '@/components/onboarding/SidebarOnboarding.vue';
 import { Avatar } from '@/components/ui/avatar';
@@ -171,24 +167,6 @@ const workspaceNavItems = computed<NavItem[]>(() => [
         icon: IconPlugConnected,
     },
 ]);
-
-const bottomNavItems = computed(() => [
-    {
-        title: trans('sidebar.support.referral'),
-        href: 'https://affiliates.trypost.it/',
-        icon: IconGift,
-    },
-    {
-        title: trans('sidebar.support.discord'),
-        href: 'https://trypost.it/discord',
-        icon: IconBrandDiscord,
-    },
-    {
-        title: trans('sidebar.support.docs'),
-        href: 'https://docs.trypost.it',
-        icon: IconLifebuoy,
-    },
-]);
 </script>
 
 <template>
@@ -272,14 +250,6 @@ const bottomNavItems = computed(() => [
                 :items="workspaceNavItems"
                 :label="$t('sidebar.groups.workspace')"
             />
-
-            <div class="mt-auto">
-                <NavSupport
-                    v-if="currentWorkspace"
-                    :items="bottomNavItems"
-                    :label="$t('sidebar.groups.others')"
-                />
-            </div>
         </SidebarContent>
         <SidebarFooter>
             <SidebarOnboarding v-if="currentWorkspace" />
