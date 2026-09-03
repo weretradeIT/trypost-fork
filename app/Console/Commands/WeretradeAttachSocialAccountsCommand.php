@@ -129,6 +129,13 @@ class WeretradeAttachSocialAccountsCommand extends Command
                     ->where('platform', $data['platform'])
                     ->first();
 
+                $scopes = match ($data['platform']) {
+                    Platform::LinkedIn => ['w_member_social', 'openid', 'profile', 'email'],
+                    Platform::LinkedInPage => ['w_organization_social', 'openid', 'profile', 'email'],
+                    Platform::X => ['tweet.read', 'tweet.write', 'users.read', 'media.write', 'offline.access'],
+                    default => [],
+                };
+
                 if (! $account) {
                     $account = SocialAccount::create([
                         'id' => (string) Str::uuid(),
@@ -138,6 +145,7 @@ class WeretradeAttachSocialAccountsCommand extends Command
                         'username' => $data['username'],
                         'display_name' => $data['display_name'],
                         'access_token' => $data['access_token'],
+                        'scopes' => $scopes,
                         'status' => Status::Connected,
                         'is_active' => true,
                         'meta' => $data['meta'],
@@ -149,6 +157,7 @@ class WeretradeAttachSocialAccountsCommand extends Command
                         'platform_user_id' => $data['platform_user_id'],
                         'username' => $data['username'],
                         'display_name' => $data['display_name'],
+                        'scopes' => $scopes,
                         'status' => Status::Connected,
                         'is_active' => true,
                         'meta' => $data['meta'],
