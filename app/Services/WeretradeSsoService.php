@@ -150,7 +150,10 @@ class WeretradeSsoService
     {
         $baseUrl = rtrim(config('trypost.weretrade_sso.login_service_url', 'https://login.weretrade.com'), '/');
         $callbackUrl = $returnUrl ?: route('auth.weretrade.callback');
+        if (str_starts_with(config('app.url'), 'https://') && str_starts_with($callbackUrl, 'http://')) {
+            $callbackUrl = 'https://' . substr($callbackUrl, 7);
+        }
 
-        return "{$baseUrl}/login?redirect=" . urlencode($callbackUrl);
+        return "{$baseUrl}/api/auth/sso?redirect=" . urlencode($callbackUrl);
     }
 }
