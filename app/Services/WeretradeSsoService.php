@@ -36,6 +36,7 @@ class WeretradeSsoService
         $expectedSigB64 = rtrim(strtr(base64_encode($expectedSig), '+/', '-_'), '=');
 
         if (! hash_equals($expectedSigB64, $sigB64)) {
+            Log::warning('weretrade SSO: Token signature verification failed');
             return null;
         }
 
