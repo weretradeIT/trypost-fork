@@ -1,0 +1,117 @@
+# ============================================================================
+# weretradeIT Social Media Hub — TryPost Production Docker Compose Stack
+# Deployment target: lair404 (production runtime) / h0menode (staging)
+# Public Endpoint: https://social.lair404.xyz (guarded by Caddy & Cloudflare Access)
+# ============================================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: production
+    image: ghcr.io/weretradeit/trypost-fork:latest
+    container_name: trypost-app
+    restart: unless-stopped
+    environment:
+      APP_NAME: "weretradeIT Social Hub"
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: "${TRYPOST_APP_KEY}"
+      APP_URL: "${TRYPOST_APP_URL:-https://social.lair404.xyz}"
+      SELF_HOSTED: "true"
+      ALLOW_MULTIPLE_SOCIAL_ACCOUNTS: "true"
+      TRYPOST_TARGET: production
+
+      # Database
+      DB_CONNECTION: pgsql
+      DB_HOST: trypost-pgsql
+      DB_PORT: "5432"
+      DB_DATABASE: trypost
+      DB_USERNAME: trypost
+      DB_PASSWORD: "${TRYPOST_DB_PASSWORD:-trypost_secret_db_pass_2026}"
+
+      # Redis / Queues / Cache / Broadcasting
+      REDIS_HOST: trypost-redis
+      REDIS_PORT: "6379"
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
+      SESSION_DRIVER: database
+      BROADCAST_CONNECTION: reverb
+
+      # Reverb WebSockets
+      REVERB_APP_ID: "1001"
+      REVERB_APP_KEY: "${TRYPOST_REVERB_KEY:-trypost-reverb-key}"
+      REVERB_APP_SECRET: "${TRYPOST_REVERB_SECRET:-trypost-reverb-secret-2026}"
+      REVERB_HOST: "0.0.0.0"
+      REVERB_PORT: "8080"
+      REVERB_SCHEME: https
+
+      # Passport OAuth & MCP Keys
+      PASSPORT_PRIVATE_KEY: "${TRYPOST_PASSPORT_PRIVATE_KEY:-}"
+      PASSPORT_PUBLIC_KEY: "${TRYPOST_PASSPORT_PUBLIC_KEY:-}"
+
+      # Storage
+      FILESYSTEM_DISK: public
+
+      # Slack HITL Notifications
+      SLACK_HITL_WEBHOOK_URL: "${TRYPOST_SLACK_HITL_WEBHOOK_URL:-}"
+
+    ports:
+      - "127.0.0.1:8330:80"     # Web UI & REST API & /mcp/trypost
+      - "127.0.0.1:8331:8080"   # Reverb WebSockets
+    volumes:
+      - trypost-storage:/var/www/html/storage/app
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - trypost-net
+
+  pgsql:
+    image: postgres:16-alpine
+    container_name: trypost-pgsql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trypost
+      POSTGRES_USER: trypost
+      POSTGRES_PASSWORD: "${TRYPOST_DB_PASSWORD:-trypost_secret_db_pass_2026}"
+    volumes:
+      - trypost-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trypost -d trypost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trypost-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: trypost-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - trypost-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - trypost-net
+
+volumes:
+  trypost-pgdata:
+    name: trypost_pgsql_data
+  trypost-redisdata:
+    name: trypost_redis_data
+  trypost-storage:
+    name: trypost_storage_data
+
+networks:
+  trypost-net:
+    name: trypost_network
+    driver: bridge
