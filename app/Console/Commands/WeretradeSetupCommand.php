@@ -115,7 +115,7 @@ class WeretradeSetupCommand extends Command
                 $workspace->members()->attach($user->id, ['role' => 'admin']);
             }
 
-            // Generate or fetch MCP Token
+            // Generate or fetch MCP OAuth Grant Token
             $tokenName = "mcp-agent-token-{$key}";
             $existing = AccessToken::where('workspace_id', $workspace->id)
                 ->where('name', $tokenName)
@@ -125,11 +125,36 @@ class WeretradeSetupCommand extends Command
                 if ($existing && $this->option('force')) {
                     $existing->delete();
                 }
-                $keyResult = CreateApiKey::execute($user, $workspace, ['name' => $tokenName]);
+
+                $mcpClient = DB::table('oauth_clients')->where('name', 'weretradeIT MCP Client')->first();
+                if (! $mcpClient) {
+                    $mcpClientId = (string) Str::uuid();
+                    DB::table('oauth_clients')->insert([
+                        'id' => $mcpClientId,
+                        'name' => 'weretradeIT MCP Client',
+                        'secret' => null,
+                        'provider' => null,
+                        'redirect_uris' => '[]',
+                        'grant_types' => json_encode(['authorization_code', 'refresh_token']),
+                        'revoked' => false,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                } else {
+                    $mcpClientId = $mcpClient->id;
+                }
+
+                $result = $user->createToken($tokenName, ['mcp:use']);
+                $tokenModel = AccessToken::findOrFail($result->token->id);
+                $tokenModel->forceFill([
+                    'client_id' => $mcpClientId,
+                    'workspace_id' => $workspace->id,
+                ])->saveQuietly();
+
                 $tokens[$key] = [
                     'workspace_id' => (string) $workspace->id,
                     'workspace_name' => $config['name'],
-                    'token' => $keyResult['plain_token'],
+                    'token' => $result->accessToken,
                 ];
             } else {
                 $tokens[$key] = [
