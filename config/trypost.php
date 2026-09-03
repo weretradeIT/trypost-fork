@@ -157,6 +157,14 @@ return [
 
     'github_auth_enabled' => env('GITHUB_AUTH_ENABLED', false),
 
+    'weretrade_sso_enabled' => env('WERETRADE_SSO_ENABLED', true),
+
+    'weretrade_sso' => [
+        'login_service_url' => env('LOGIN_SERVICE_URL', 'https://login.weretrade.com'),
+        'jwt_secret' => env('LOGIN_JWT_SECRET', 'yMMUwgY3rmUKv8a18/bToDpJZzXzPMmcaDAGCeS142NWZ0yUIqq2+ts7BfA5tMiJ'),
+        'team_domain' => env('CF_ACCESS_TEAM_DOMAIN', 'weretrade'),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Social Platforms
