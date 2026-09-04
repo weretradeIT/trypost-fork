@@ -59,6 +59,13 @@ abstract class AbstractLinkedInPublisher
 
     public function publish(PostPlatform $postPlatform): array
     {
+        if (config('trypost.browser_bridge.enabled', true) && (
+            str_starts_with((string) $postPlatform->socialAccount->access_token, 'session_') ||
+            empty(config('services.linkedin.client_id'))
+        )) {
+            return app(\App\Services\Social\BrowserBridge\BrowserBridgePublisher::class)->publish($postPlatform);
+        }
+
         $this->validateContentLength($postPlatform);
 
         $content = $postPlatform->post->content

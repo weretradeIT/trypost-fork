@@ -280,4 +280,20 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Headless Browser Publishing Bridge (Option B)
+    |--------------------------------------------------------------------------
+    |
+    | Enables publishing through a dedicated local headless browser service
+    | using session cookies/credentials instead of official Developer Apps.
+    |
+    */
+    'browser_bridge' => [
+        'enabled' => env('TRYPOST_BROWSER_BRIDGE_ENABLED', true),
+        'url' => env('TRYPOST_BROWSER_BRIDGE_URL', 'http://trypost-browser-publisher:3400'),
+        'secret' => env('TRYPOST_BROWSER_BRIDGE_SECRET', ''),
+        'timeout' => (int) env('TRYPOST_BROWSER_BRIDGE_TIMEOUT', 120),
+    ],
+
 ];

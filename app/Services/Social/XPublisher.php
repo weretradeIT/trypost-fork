@@ -33,6 +33,13 @@ class XPublisher
 
     public function publish(PostPlatform $postPlatform): array
     {
+        if (config('trypost.browser_bridge.enabled', true) && (
+            str_starts_with((string) $postPlatform->socialAccount->access_token, 'session_') ||
+            empty(config('services.x.client_id'))
+        )) {
+            return app(\App\Services\Social\BrowserBridge\BrowserBridgePublisher::class)->publish($postPlatform);
+        }
+
         $this->validateContentLength($postPlatform);
 
         $content = $postPlatform->post->content ? app(ContentSanitizer::class)->sanitize($postPlatform->post->content, $postPlatform->platform) : null;
