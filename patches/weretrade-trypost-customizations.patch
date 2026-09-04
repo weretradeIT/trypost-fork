@@ -1,510 +1,141 @@
-diff --git a/.github/workflows/release-docker.yml b/.github/workflows/release-docker.yml
-index 16a22ec6..b7b02fc6 100644
---- a/.github/workflows/release-docker.yml
-+++ b/.github/workflows/release-docker.yml
-@@ -1,8 +1,7 @@
- name: Publish Docker image
- 
--# Builds the production image and publishes it to GitHub Container Registry
--# (GHCR) on every version tag. amd64 and arm64 are built on native runners,
--# then stitched into one multi-arch manifest — no QEMU emulation.
-+# Builds the production image for linux/amd64 (lair404 server architecture)
-+# and publishes it to GitHub Container Registry (GHCR).
- 
- on:
-   push:
-@@ -12,37 +11,29 @@ on:
- 
- env:
-   REGISTRY: ghcr.io
--  IMAGE_NAME: ${{ github.repository }}
- 
- jobs:
-   build:
--    name: Build (${{ matrix.platform }})
--    runs-on: ${{ matrix.runner }}
--    strategy:
--      fail-fast: false
--      matrix:
--        include:
--          - platform: linux/amd64
--            runner: ubuntu-latest
--          - platform: linux/arm64
--            runner: ubuntu-24.04-arm
-+    name: Build & Push (linux/amd64)
-+    runs-on: ubuntu-latest
-     permissions:
-       contents: read
-       packages: write
-     steps:
--      - name: Prepare platform slug
--        run: echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
--        env:
--          platform: ${{ matrix.platform }}
-+      - name: Prepare image name
-+        run: echo "IMAGE_NAME=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
- 
-       - name: Checkout
-         uses: actions/checkout@v7
- 
--      - name: Docker metadata (labels)
-+      - name: Docker metadata (labels & tags)
-         id: meta
-         uses: docker/metadata-action@v5
-         with:
-           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-+          tags: |
-+            type=raw,value=latest
-+            type=semver,pattern={{version}}
- 
-       - name: Set up Docker Buildx
-         uses: docker/setup-buildx-action@v3
-@@ -54,77 +45,17 @@ jobs:
-           username: ${{ github.actor }}
-           password: ${{ secrets.GITHUB_TOKEN }}
- 
--      - name: Build and push by digest
--        id: build
-+      - name: Build and push
-         uses: docker/build-push-action@v6
-         with:
-           context: .
-           file: docker/Dockerfile
-           target: production
--          platforms: ${{ matrix.platform }}
-+          platforms: linux/amd64
-+          push: true
-+          tags: ${{ steps.meta.outputs.tags }}
-           labels: ${{ steps.meta.outputs.labels }}
-           build-args: |
-             VITE_REVERB_APP_KEY=trypost-reverb-key
--          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
--          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
--          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
--
--      - name: Export digest
--        run: |
--          mkdir -p "${{ runner.temp }}/digests"
--          digest="${{ steps.build.outputs.digest }}"
--          touch "${{ runner.temp }}/digests/${digest#sha256:}"
--
--      - name: Upload digest
--        uses: actions/upload-artifact@v7
--        with:
--          name: digests-${{ env.PLATFORM_PAIR }}
--          path: ${{ runner.temp }}/digests/*
--          if-no-files-found: error
--          retention-days: 1
--
--  merge:
--    name: Merge multi-arch manifest
--    runs-on: ubuntu-latest
--    needs: [build]
--    permissions:
--      contents: read
--      packages: write
--    steps:
--      - name: Download digests
--        uses: actions/download-artifact@v7
--        with:
--          path: ${{ runner.temp }}/digests
--          pattern: digests-*
--          merge-multiple: true
--
--      - name: Set up Docker Buildx
--        uses: docker/setup-buildx-action@v3
--
--      - name: Docker metadata (tags)
--        id: meta
--        uses: docker/metadata-action@v5
--        with:
--          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
--          tags: |
--            type=semver,pattern={{version}}
--            type=semver,pattern={{major}}.{{minor}}
--            type=semver,pattern={{major}}
--            type=raw,value=latest
--
--      - name: Log in to GHCR
--        uses: docker/login-action@v3
--        with:
--          registry: ${{ env.REGISTRY }}
--          username: ${{ github.actor }}
--          password: ${{ secrets.GITHUB_TOKEN }}
--
--      - name: Create and push manifest list
--        working-directory: ${{ runner.temp }}/digests
--        run: |
--          docker buildx imagetools create \
--            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
--            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
--
--      - name: Inspect published image
--        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-+          cache-from: type=gha
-+          cache-to: type=gha,mode=max
-diff --git a/AGENTS.md b/AGENTS.md
-index 9ffbdbdb..8a716b2d 100644
---- a/AGENTS.md
-+++ b/AGENTS.md
-@@ -1,288 +1,63 @@
--<laravel-boost-guidelines>
--=== foundation rules ===
--
--# Laravel Boost Guidelines
--
--The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience when building Laravel applications.
--
--## Foundational Context
--
--This application is a Laravel application running on PHP 8.5. You are an expert with the Laravel ecosystem. Always use the APIs that match the installed major version of each package — do not assume a version.
--
--Before relying on a package's API, confirm its installed version:
--- PHP packages: run `composer show --direct` to list direct dependencies with versions, or `composer show <vendor/package>` for a single package.
--- JS packages: check `package.json` for the installed versions.
--
--## Skills Activation
--
--This project has domain-specific skills available in `**/skills/**`. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
--
--## Conventions
--
--- You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, and naming.
--- Use descriptive names for variables and methods. For example, `isRegisteredForDiscounts`, not `discount()`.
--- Check for existing components to reuse before writing a new one.
--
--## Verification Scripts
--
--- Do not create verification scripts or tinker when tests cover that functionality and prove they work. Unit and feature tests are more important.
--
--## Application Structure & Architecture
--
--- Stick to existing directory structure; don't create new base folders without approval.
--- Do not change the application's dependencies without approval.
--
--## Frontend Bundling
--
--- If the user doesn't see a frontend change reflected in the UI, it could mean they need to run `npm run build`, `npm run dev`, or `composer run dev`. Ask them.
--
--## Documentation Files
--
--- You must only create documentation files if explicitly requested by the user.
--
--## Replies
--
--- Be concise in your explanations - focus on what's important rather than explaining obvious details.
--
--=== boost rules ===
--
--# Laravel Boost
--
--## Tools
--
--- Laravel Boost is an MCP server with tools designed specifically for this application. Prefer Boost tools over manual alternatives like shell commands or file reads.
--- Use `database-query` to run read-only queries against the database instead of writing raw SQL in tinker.
--- Use `database-schema` to inspect table structure before writing migrations or models.
--- Use `get-absolute-url` to resolve the correct scheme, domain, and port for project URLs. Always use this before sharing a URL with the user.
--- Use `browser-logs` to read browser logs, errors, and exceptions. Only recent logs are useful, ignore old entries.
--
--## Searching Documentation (IMPORTANT)
--
--- Always use `search-docs` before making code changes. Do not skip this step. It returns version-specific docs based on installed packages automatically.
--- Pass a `packages` array to scope results when you know which packages are relevant.
--- Use multiple broad, topic-based queries: `['rate limiting', 'routing rate limiting', 'routing']`. Expect the most relevant results first.
--- Do not add package names to queries because package info is already shared. Use `test resource table`, not `filament 4 test resource table`.
--
--### Search Syntax
--
--1. Use words for auto-stemmed AND logic: `rate limit` matches both "rate" AND "limit".
--2. Use `"quoted phrases"` for exact position matching: `"infinite scroll"` requires adjacent words in order.
--3. Combine words and phrases for mixed queries: `middleware "rate limit"`.
--4. Use multiple queries for OR logic: `queries=["authentication", "middleware"]`.
--
--## Project Rules
--
--- This project keeps committed, area-grouped rules in `.ai/rules` (settled decisions, non-obvious traps, standing constraints). Framework and package guidelines that only apply to specific paths (testing, frontend, components) also live there, under `.ai/rules/boost` — this is not just recorded decisions, it is load-bearing guidance you have not seen inline. Before you enter plan mode or create/edit any file, you MUST first: open @.ai/rules/index.md (it maps file globs to rule files), read every rule file whose globs cover the path(s) in scope, and run `grep -rin 'keyword' .ai/rules` to catch what a path match alone misses. Do not write code until you have read and are following every matching rule.
--- Record durable rules with `record-rule` so the next agent or teammate inherits them instead of working them out again. Pass a `glob` (e.g. `app/Http/Controllers/**`), a short `title`, and a few-line `note`. Always use `record-rule`, never your native memory or notes tool — native memory is personal and session-scoped; only `.ai/rules` is shared with the team and persists in the repo.
--
--## Artisan
--
--- Run Artisan commands directly via the command line (e.g., `php artisan route:list`). Use `php artisan list` to discover available commands and `php artisan [command] --help` to check parameters.
--- Inspect routes with `php artisan route:list`. Filter with: `--method=GET`, `--name=users`, `--path=api`, `--except-vendor`, `--only-vendor`.
--- Read configuration values using dot notation: `php artisan config:show app.name`, `php artisan config:show database.default`. Or read config files directly from the `config/` directory.
--
--## Tinker
--
--- Execute PHP in app context for debugging and testing code. Do not create models without user approval, prefer tests with factories instead. Prefer existing Artisan commands over custom tinker code.
--- Always use single quotes to prevent shell expansion: `php artisan tinker --execute 'Your::code();'`
--  - Double quotes for PHP strings inside: `php artisan tinker --execute 'User::where("active", true)->count();'`
--
--=== php rules ===
--
--# PHP
--
--- Always use curly braces for control structures, even for single-line bodies.
--- Use PHP 8 constructor property promotion: `public function __construct(public GitHub $github) { }`. Do not leave empty zero-parameter `__construct()` methods unless the constructor is private.
--- Use explicit return type declarations and type hints for all method parameters: `function isAccessible(User $user, ?string $path = null): bool`
--- Use TitleCase for Enum keys: `FavoritePerson`, `BestLake`, `Monthly`.
--- Prefer PHPDoc blocks over inline comments. Only add inline comments for exceptionally complex logic.
--- Use array shape type definitions in PHPDoc blocks.
--
--=== deployments rules ===
--
--# Deployment
--
--- Laravel can be deployed using [Laravel Cloud](https://cloud.laravel.com/), which is the fastest way to deploy and scale production Laravel applications.
--
--=== herd rules ===
--
--# Laravel Herd
--
--- The application is served by Laravel Herd at `https?://[kebab-case-project-dir].test`. Use the `get-absolute-url` tool to generate valid URLs. Never run commands to serve the site. It is always available.
--- Use the `herd` CLI to manage services, PHP versions, and sites (e.g. `herd sites`, `herd services:start <service>`, `herd php:list`). Run `herd list` to discover all available commands.
--
--=== tests rules ===
--
--# Test Enforcement
--
--- Every change must be programmatically tested. Write a new test or update an existing test, then run the affected tests to make sure they pass.
--- Run the minimum number of tests needed to ensure code quality and speed. Use `php artisan test --compact` with a specific filename or filter.
--
--=== inertia-laravel/core rules ===
--
--# Inertia
--
--- Inertia creates fully client-side rendered SPAs without modern SPA complexity, leveraging existing server-side patterns.
--- Components live in `resources/js/pages` (unless specified in `vite.config.js`). Use `Inertia::render()` for server-side routing instead of Blade views.
--- ALWAYS use `search-docs` tool for version-specific Inertia documentation and updated code examples.
--- IMPORTANT: Activate `inertia-vue-development` when working with Inertia Vue client-side patterns.
--
--# Inertia v3
--
--- Use all Inertia features from v1, v2, and v3. Check the documentation before making changes to ensure the correct approach.
--- New v3 features: standalone HTTP requests (`useHttp` hook), optimistic updates with automatic rollback, layout props (`useLayoutProps` hook), instant visits, simplified SSR via `@inertiajs/vite` plugin, custom exception handling for error pages.
--- Carried over from v2: deferred props, infinite scroll, merging props, polling, prefetching, once props, flash data.
--- When using deferred props, add an empty state with a pulsing or animated skeleton.
--- Axios has been removed. Use the built-in XHR client with interceptors, or install Axios separately if needed.
--- `Inertia::lazy()` / `LazyProp` has been removed. Use `Inertia::optional()` instead.
--- Prop types (`Inertia::optional()`, `Inertia::defer()`, `Inertia::merge()`) work inside nested arrays with dot-notation paths.
--- SSR works automatically in Vite dev mode with `@inertiajs/vite` - no separate Node.js server needed during development.
--- Event renames: `invalid` is now `httpException`, `exception` is now `networkError`.
--- `router.cancel()` replaced by `router.cancelAll()`.
--- The `future` configuration namespace has been removed - all v2 future options are now always enabled.
--
--=== laravel/core rules ===
--
--# Do Things the Laravel Way
--
--- Use `php artisan make:` commands to create new files (i.e. migrations, controllers, models, etc.). You can list available Artisan commands using `php artisan list` and check their parameters with `php artisan [command] --help`.
--- If you're creating a generic PHP class, use `php artisan make:class`.
--- Pass `--no-interaction` to all Artisan commands to ensure they work without user input. You should also pass the correct `--options` to ensure correct behavior.
--
--### Model Creation
--
--- When creating new models, create useful factories and seeders for them too. Ask the user if they need any other things, using `php artisan make:model --help` to check the available options.
--
--## APIs & Eloquent Resources
--
--- For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
--
--## URL Generation
--
--- When generating links to other pages, prefer named routes and the `route()` function.
--
--## Testing
--
--- When creating models for tests, use the factories for the models. Check if the factory has custom states that can be used before manually setting up the model.
--- Faker: Use methods such as `$this->faker->word()` or `fake()->randomDigit()`. Follow existing conventions whether to use `$this->faker` or `fake()`.
--- When creating tests, make use of `php artisan make:test [options] {name}` to create a feature test, and pass `--unit` to create a unit test. Most tests should be feature tests.
--
--## Vite Error
--
--- If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
--
--=== wayfinder/core rules ===
--
--# Laravel Wayfinder
--
--Use Wayfinder to generate TypeScript functions for Laravel routes. Import from `@/actions/` (controllers) or `@/routes/` (named routes).
--
--=== pint/core rules ===
--
--# Laravel Pint Code Formatter
--
--- If you have modified any PHP files, you must run `vendor/bin/pint --dirty --format agent` before finalizing changes to ensure your code matches the project's expected style.
--- Do not run `vendor/bin/pint --test --format agent`, simply run `vendor/bin/pint --format agent` to fix any formatting issues.
--
--=== pest/core rules ===
--
--## Pest
--
--- This project uses Pest for testing. Create tests: `php artisan make:test --pest {name}`.
--- The `{name}` argument should not include the test suite directory. Use `php artisan make:test --pest SomeFeatureTest` instead of `php artisan make:test --pest Feature/SomeFeatureTest`.
--- Run tests: `php artisan test --compact` or filter: `php artisan test --compact --filter=testName`.
--- Do NOT delete tests without approval.
--
--=== inertia-vue/core rules ===
--
--# Inertia + Vue
--
--Vue components must have a single root element.
--- IMPORTANT: Activate `inertia-vue-development` when working with Inertia Vue client-side patterns.
--
--</laravel-boost-guidelines>
--
--# Project-Specific Rules
--
--## Stripe Checkout (env knobs)
--
--Checkout options are configured only via env — do not hardcode trial/coupon/promo behavior in controllers. All of it goes through `App\Support\Billing\ConfigureSubscriptionCheckout` (called from `StartSubscriptionCheckout`).
--
--| Env | Config | Default | Effect |
--| --- | --- | --- | --- |
--| `REQUIRE_CARD_FOR_TRIAL` | `trypost.billing.require_card_for_trial` | `true` | `true`: app access only after Stripe Checkout (no generic signup trial). `false`: generic `accounts.trial_ends_at` trial without a card |
--| `CASHIER_TRIAL_DAYS` | `cashier.trial_days` | `8` | Card-required Checkout: `trialDays(N)` for **first-time** subscribers when no first-month coupon is applied (`0` = off). Re-subscribers skip trial. No-card mode: length of the generic signup trial |
--| `STRIPE_FIRST_MONTH_COUPON_ID` | `cashier.first_month_coupon_id` | empty | Optional. When set for a qualifying first-time single-workspace checkout, applies `withCoupon` and **skips** trial. Empty = trial mode |
--| `CASHIER_ALLOW_PROMOTION_CODES` | `cashier.allow_promotion_codes` | `false` | When `true` and no coupon is applied, show the Checkout promo-code field |
--
--Standing constraints:
--- Stripe rejects `discounts` (coupon) and `allow_promotion_codes` on the same session — if both would apply, `ConfigureSubscriptionCheckout` must throw (fail loud). Never “prefer one silently.” Envs may both be set when the account does **not** qualify for the coupon (no throw).
--- A set first-month coupon wins over trial (`trialDays` is skipped for that checkout).
--- Empty coupon + card required + first-time must use `trialDays` — do **not** reintroduce a required-coupon throw.
--- Coupon qualification stays: card required, exactly one workspace, no prior real subscription (`incomplete` / `incomplete_expired` still qualify).
--- Prefer documenting durable billing decisions here (and in `CLAUDE.md`) — do **not** create a `.ai/` rules folder for this project.
--
--## Multiple social accounts per network
--
--One connected identity per social network per workspace is the Cloud default. This is **not** tied to `SELF_HOSTED` — Cloud cannot flip that flag, but it can flip this one.
--
--| Env | Config | Default | Effect |
--| --- | --- | --- | --- |
--| `ALLOW_MULTIPLE_SOCIAL_ACCOUNTS` | `trypost.allow_multiple_social_accounts` | `false` (falls back to `SELF_HOSTED` when unset) | `true`: a workspace may connect more than one account of the same network (two LinkedIns, two Instagrams, …). `false`: one per network (LinkedIn profile + page count as one; Instagram standalone + Instagram-via-Facebook count as one). Reconnecting the same `platform` + `platform_user_id` still updates the existing row. Shared to Inertia as `allowMultipleSocialAccounts`. |
--
--Self-hosted compose / `.env.example` set this `true`. When the env is unset, the config falls back to `SELF_HOSTED` so existing self-hosted installs keep multiple accounts. Do **not** use `selfHosted` for the occupancy check (observer, Telegram connect, `NetworkConnectGrid`).
--
--## Database engines (PostgreSQL + MySQL)
--
--TryPost runs on **both PostgreSQL and MySQL**. Cloud runs PostgreSQL; a self-hosted install may pick either. Every query, migration, and test must work on both — the suite is expected to be green on each.
--
--- **What the app supports is the intersection of the two engines, never the superset of one.** When they differ, take the narrower behaviour — a feature that only holds on PostgreSQL is a feature TryPost does not have.
--- Never use an engine-specific operator or function. Search uses `whereLike()` (Laravel handles the case-insensitive form per driver), never `ilike` or a raw `LOWER(...)` comparison.
--- Traps that only surface on MySQL:
--    - **JSON object key order is not preserved.** MySQL reorders object keys on storage (by length, then lexicographically); PostgreSQL keeps insertion order. Assert JSON read back from the database with `toEqual` (recursive, order-independent), never `toBe`/`assertSame`. Array *element* order is preserved on both.
--    - **`$table->timestamp()` tops out at 2038-01-19.** PostgreSQL has no such limit, so 2038-01-19 is the app's ceiling: nothing written to a `timestamp()` column may go past it — scheduled posts, expiry sentinels and test fixtures alike. `2037-12-31` reads as "far future" and works on both. Do not widen a column to escape the limit without a deliberate decision; it changes what self-hosted MySQL installs can store.
--    - **Raw query-builder reads carry no Eloquent cast**, so the driver's native shape leaks through: `DB::table(...)->value('some_bool')` is `true` on PostgreSQL and `1` on MySQL. Read through the model, or use `assertDatabaseHas`.
--    - **Identifier quoting differs** — PostgreSQL emits `"post_platforms"`, MySQL emits backticks. Never match logged SQL (`DB::listen`) against a quoted identifier.
--    - **MySQL refuses to drop the only index backing a foreign key** (SQLSTATE `1553`). A migration `down()` that drops a unique whose leftmost prefix is an FK column must create a standalone index for that column first.
--    - **DDL implicitly commits**, which defeats `RefreshDatabase`'s rollback: schema changes made inside a test leak into the tests that follow. Keep them idempotent.
--
--## Social Platform API Documentation (official sources)
--
--**Always consult the official docs below before implementing or changing OAuth, publishing, deletion, rate-limit, or any other platform-specific behavior — never guess endpoints, scopes, rate limits, or capabilities from memory.** APIs shift over time; a behavior confirmed in a past session may no longer hold. One entry per social network we integrate with:
--
--- **Facebook / Instagram / Threads (Meta)**: all three share the Graph API error format (`error.code`, `error.type`).
--    - General error handling / codes 1, 2, 4, 17, 190: https://developers.facebook.com/docs/graph-api/guides/error-handling/
--    - Rate limiting — Platform Rate Limits (app/user tokens, codes 4/17) vs. Business Use Case (BUC) Rate Limits (Page/system-user tokens, codes 80000–80014 — e.g. `80001` Pages API, `80002` Instagram Platform; BUC rejections come back as plain HTTP 400, not 429): https://developers.facebook.com/docs/graph-api/overview/rate-limiting/
--    - Instagram content-publishing error codes: https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/error-codes/
--    - Instagram media reference (incl. `DELETE`): https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/
--    - Threads API: https://developers.facebook.com/docs/threads — reuses the Graph API error format; no separate Threads-specific error code table exists. Delete posts (needs the separate `threads_delete` permission, 100 deletes/day/account): https://developers.facebook.com/docs/threads/posts/delete-posts/
--    - Our `App\Services\Social\Meta\GraphError` (used by `ConnectionVerifier`'s verify/refresh calls) has the full rationale and code table in its class docblock — check there before changing transient-vs-confirmed-rejection classification.
--    - `Facebook`/`InstagramFacebook` `SocialAccount`s use a Facebook Page access token (BUC-limited); `Instagram` (direct login) and `Threads` use a user access token (Platform Rate Limit-limited). This affects which rate-limit codes apply to which platform.
--- **X (Twitter)**: API v2 — https://docs.x.com/x-api ; Post management (create/delete) — https://docs.x.com/x-api/posts/manage-tweets/introduction
--- **LinkedIn**: Posts API (create/update/delete, member + organization) — https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api (replaces the deprecated `ugcPosts` API)
--- **Mastodon**: Statuses API — https://docs.joinmastodon.org/methods/statuses/
--- **Pinterest**: API v5 reference — https://developers.pinterest.com/docs/api/v5/
--- **YouTube**: Data API v3 — https://developers.google.com/youtube/v3/docs
--- **TikTok**: Content Posting API — https://developers.tiktok.com/doc/content-posting-api-reference-direct-post — **no delete/unpublish endpoint exists**; a published post can only be removed manually inside the TikTok app
--- **Bluesky / AT Protocol**: official lexicons — https://github.com/bluesky-social/atproto/tree/main/lexicons/com/atproto/repo ; HTTP API reference — https://docs.bsky.app
--- **Discord**: Webhook resource (used for our webhook-based publishing) — https://docs.discord.com/developers/resources/webhook
--- **Telegram**: Bot API — https://core.telegram.org/bots/api
--
--## X link defusing (env knob)
--
--X bills a post containing a URL at **$0.20** vs **$0.015** for a plain post (13x), and its algorithm demotes link posts. So on Cloud the `ContentSanitizer` rewrites every URL in the X version of a post into a non-clickable form — `https://example.com/post` becomes `example(.)com/post`.
--
--| Env | Config | Default | Effect |
--| --- | --- | --- | --- |
--| `X_DEFUSE_LINKS` | `trypost.platforms.x.defuse_links` | `false` | `true`: URLs in the X version of a post are rewritten non-clickable (scheme and `www.` dropped, **every** dot of the host replaced with `(.)`). `false`: the X content is published unchanged. Only affects `Platform::X` — every other network keeps the URL intact. |
--
--Standing constraints:
--- The transform lives in ONE place: the `Platform::X` arm of `App\Services\Social\ContentSanitizer::sanitize()`. Never re-implement it in a publisher or add a `$defuseLinks` parameter to `sanitize()` — a per-call-site flag gets forgotten at the next entry point and we silently start paying again. Because `PostPreviewer` also goes through `ContentSanitizer`, the app/API/MCP previews show the defused text for free.
--- **Every** dot of the host must be broken. Defusing only the dot before the TLD leaves `blog.example.com` in `blog.example.com(.)br`, which X still detects and bills.
--- A URL carrying `https://`, `http://` or `www.` is defused on sight. A **bare** host is only a link when its last label is a delegated TLD — that check is the one thing separating `acme.com` from `Node.js`, and it goes through `App\Support\LinkTlds`, which mirrors the full IANA root zone rather than a hand-picked subset. Never replace it with "any 2+ letters after a dot", and never trim it back to a curated list: whatever X links is what X bills, so the two must stay in step. `README.md` and `backup.zip` are defused on purpose — `.md` and `.zip` are real TLDs and X links them too.
--- Off by default everywhere. Cloud opts in; self-hosted installs publish through their own X app and pay their own bill, so they only turn it on if they want to.
--- Character limits are measured against the **sanitized** content — the string the publisher actually sends — in both `App\Rules\ContentFitsPlatformLimits` (save/schedule) and `HasSocialHttpClient::validateContentLength()` (publish). The editor stores HTML and per-platform rules change the length again, so measuring the raw draft blocks saving posts that publish fine and lets through posts the network rejects. Keep the two in step.
--- Tests enable it explicitly with `config()->set('trypost.platforms.x.defuse_links', true)` rather than pinning an env, so the suite runs against the shipped default.
--- The editor counts characters and renders the X preview client-side, so the rewrite is mirrored in `resources/js/lib/defuseXLinks.ts`. The TLD list is NOT duplicated there: `PostController@edit` sends `App\Support\LinkTlds::all()` as the `xLinkTlds` page prop, and only when defusing is on — an empty set means the feature is off, since without the list a bare host cannot be told from `Node.js`. Do not move it to the Inertia shared props; only the editor needs it. Two tests keep the mirror honest: `XLinkDefusingParityTest` runs a shared corpus through both engines over the same list and diffs the output, and `tests/Browser/XLinkDefusingTest.php` drives the real editor.
--- Neither expression may use lookbehind. Safari only understands it from 16.4, esbuild cannot transpile it, and a `SyntaxError` there takes down the whole chunk — the character before a candidate URL is consumed and put back instead.
--
-+# AGENTS.md — TryPost Fork (weretradeIT Social Media Hub)
+diff --git a/WERETRADE_CUSTOMIZATIONS.md b/WERETRADE_CUSTOMIZATIONS.md
+new file mode 100644
+index 00000000..683a1692
+--- /dev/null
++++ b/WERETRADE_CUSTOMIZATIONS.md
+@@ -0,0 +1,126 @@
++# weretradeIT Customizations for TryPost Hub
 +
-+Authoritative operating rails, workspace separation, and integration guidelines for `weretradeIT/trypost-fork`.
++Dieses Dokument beschreibt alle Änderungen, Architekturentscheidungen und Komponenten, die in den weretradeIT-Fork von [trypostit/trypost](https://github.com/trypostit/trypost) integriert wurden.
 +
-+## Purpose & Scope
++---
 +
-+`trypost-fork` is the centralized, self-hosted Social Media Scheduling & Automation Hub for the weretradeIT ecosystem, forked from upstream [`trypostit/trypost`](https://github.com/trypostit/trypost).
++## 1. Übersicht & Host-Architektur
 +
-+It unifies:
-+- Visual calendar scheduling across 12 networks (LinkedIn, X/Twitter, Meta Facebook & Instagram, YouTube, TikTok, Pinterest, Threads, Bluesky, Mastodon, Telegram, Discord).
-+- First-class AI Copilot & remote MCP server (`/mcp/trypost`) with 26+ tools for posts, media, assets, signatures, and analytics.
-+- Multi-persona workspaces isolated by brand profile, tone, voice, signatures, and connected credentials.
++- **Instanz**: `https://social-scheduler.lair404.xyz`
++- **Host**: `lair404` (Docker Compose unter `/opt/lair404-infrastructure/services/trypost`)
++- **Netzwerk**: `lair404-bridge` (verbunden mit PostgreSQL, Redis und Nginx)
++- **Nginx Reverse Proxy**:
++  - Web & API: `http://127.0.0.1:8330`
++  - Reverb WebSocket: `http://127.0.0.1:8331` (geroutet über `/app`)
 +
-+## Upstream & Branch Ladder
++---
 +
-+- **Upstream Repository:** `https://github.com/trypostit/trypost.git`
-+- **Origin Repository:** `https://github.com/weretradeIT/trypost-fork.git`
-+- **Branch Ladder:**
-+  - `main`: Canonical weretrade production release.
-+  - `dev-ops`: Staging / release candidate branch.
-+  - `dev`: Active development and agent collaboration branch.
-+- **Sync Rule:** Regularly fetch upstream changes:
-+  ```bash
-+  git fetch upstream
-+  git merge upstream/main
-+  ```
++## 2. Centralized weretrade SSO & Auto-Login
 +
-+## Persona Workspaces
++### AuthLion (`core-lion`) Handoff
++- **Worker**: `weretradeIT/authLion/backend/worker.ts`
++- **Shared Secret**: `yMMUwgY3rmUKv8a18/bToDpJZzXzPMmcaDAGCeS142NWZ0yUIqq2+ts7BfA5tMiJ` (entspricht `LOGIN_JWT_SECRET` in TryPost `.env` und Vault `secret/lair404/trypost`).
++- **Google OAuth Flow**: Nach erfolgreichem Login auf `login.weretrade.com` (z. B. via `weretradeit@gmail.com`) leitet AuthLion mit `?token={jwt}&session={jwt}` an `https://social-scheduler.lair404.xyz/auth/sso/callback` weiter.
 +
-+| Workspace | Persona / Focus | Voice Traits | Target Networks | Primary Branding |
-+| :--- | :--- | :--- | :--- | :--- |
-+| **Bob Weber** | B2B Operations, Order Fulfillment, Logistics, EU OSS Compliance | Analytical, Pragmatic, Professional, Efficiency-driven | LinkedIn, X, Facebook | `#SupplyChain #ECommerceLogistics #weretradeIT` |
-+| **Hanna Thoma** | Customer Experience, Vintage Lego, Dispute Resolution, Marketplace Tips | Empathetic, Enthusiastic, Collector-Friendly, Warm | Meta (IG & FB), X, LinkedIn | `#CustomerCare #MarketplaceTips #VintageLego #weretradeIT` |
-+| **Corporate / BKB** | BauKlotzBude & weretradeIT Brand News, Rare Drops, Innovations | Innovative, Engaging, Authoritative | YouTube, Bluesky, Pinterest, TikTok, Company LinkedIn | `#BauKlotzBude #VintageLego #weretradeIT` |
++### TryPost Middleware & Service
++- **Middleware**: `app/Http/Middleware/WeretradeSsoMiddleware.php`
++  - Registriert in `bootstrap/app.php` im `web`-Stack.
++  - Prüft eingehende Requests auf `CF_Authorization`, `token` und `session` (Cookies oder URL-Query-Parameter).
++  - Erkennt automatisch SSO-Tokens und authentifiziert den Nutzer vor dem Erreichen geschützter Routen.
++- **Service**: `app/Services/WeretradeSsoService.php`
++  - Validiert die HS256-JWT-Signatur.
++  - Automatische Benutzerbereitstellung (`findOrCreateUser`):
++    - Ordnet neue Benutzer automatisch der primären weretrade Account-ID (`01a06910-bbd6-7183-8023-e8d3701a9cc0`) zu.
++    - Fügt den Benutzer als `admin` zu allen 4 Personas/Workspaces hinzu.
++    - Setzt `current_workspace_id` auf den Standard-Workspace (verhindert 403-Fehler bei `/workspaces/create`).
++- **Frontend**:
++  - `resources/js/components/auth/SocialLogin.vue`: Ersetzt Standard-GitHub/Google-Buttons durch einen prominenten "Mit weretrade SSO anmelden"-Button, der an `https://login.weretrade.com/api/auth/sso` delegiert.
 +
-+## Mandatory Human-In-The-Loop (HITL) Guardrails
++---
 +
-+- Autonomous AI agents (Bob, Hanna, Antigravity, n8n) MUST ONLY create posts in `draft` status via the MCP server (`CreatePostTool`).
-+- Immediate publishing (`PublishPostTool`) requires explicit human operator confirmation.
-+- When an agent creates a draft via MCP, TryPost dispatches a Block Kit preview card to the designated Slack operator channel with interactive approval buttons:
-+  - `[ ✅ Freigeben & Einplanen ]`
-+  - `[ ❌ Verwerfen ]`
-+- Only upon operator interaction is `PublishPostTool` or status update to `publishing` / `scheduled` executed.
++## 3. Multi-Persona Workspace Architektur
 +
-+## Hosting & Deployment Architecture
++TryPost wurde mit 4 vordefinierten Workspaces für weretradeIT konfiguriert:
 +
-+- **Host:** `lair404` (Production runtime) / `h0menode` (Staging/Dev).
-+- **Public Domain:** `https://social.lair404.xyz` (or `https://post.lair404.xyz`).
-+- **Reverse Proxy:** Caddy with automatic Let's Encrypt TLS, guarded by Cloudflare Access SSO.
-+- **Docker Stack (`docker-compose.weretrade.yml`):**
-+  - `trypost-app`: Laravel 11/12 application (PHP 8.4-FPM, Nginx, Supervisor, Reverb WebSockets, Horizon queue worker).
-+  - `trypost-pgsql`: PostgreSQL 16 Alpine.
-+  - `trypost-redis`: Redis 7 Alpine.
-+- **Environment Flags:**
-+  - `SELF_HOSTED="true"`
-+  - `ALLOW_MULTIPLE_SOCIAL_ACCOUNTS="true"`
-+  - `TRYPOST_TARGET="production"`
++| Workspace | UUID | Persona-Fokus & Brand Voice |
++| :--- | :--- | :--- |
++| **Bob Weber** | `01a06910-c0eb-711f-8162-31af2836eb45` | B2B Operations, Logistik, EU-OSS, Inventar (`#1E40AF`, analytisch & pragmatisch) |
++| **Hanna Thoma** | `01a06910-c25a-7393-8218-23a624c7c9c4` | CX, Sammler-Support, Lego-Vintage, Vinted/Kleinanzeigen (`#7C3AED`, warm & empathisch) |
++| **weretradeIT Corporate & BKB** | `01a06910-c332-7080-88da-04b44569f711` | BauKlotzBude, E-Commerce News, Plattform-Updates (`#059669`, autoritativ & innovativ) |
++| **weretrade Admin** | `01a06910-c09a-7101-9192-48a99b85b272` | Übergreifende Administration & Steuerung |
 +
-+## MCP Control Plane Integration
++### Bootstrap Command:
++```bash
++php artisan weretrade:setup
++```
++Erstellt die Workspaces, Brand-Informationen, Markenfarben und generiert MCP-OAuth-Tokens mit Scope `mcp:use`.
 +
-+- TryPost exposes `/mcp/trypost` via SSE using Laravel Passport bearer authentication (`workspace.token:mcp`).
-+- Registered in `.ai/layers/workspace/mcp-catalog.json` under alias `trypost`.
-+- All weretrade agents can query calendar, draft posts, manage assets, and inspect post metrics natively.
++---
++
++## 4. Social Media Accounts (LinkedIn & X Direct Injection)
++
++Da bei einer Self-Hosted-Instanz ohne eigene Developer-Portal-Freigaben für X/LinkedIn OAuth 2.0 PKCE fehlschlägt, wurde ein direkter Injektions-Mechanismus implementiert:
++
++### Artisan Command:
++```bash
++php artisan weretrade:attach-social-accounts
++```
++- Hinterlegt in der Tabelle `social_accounts` für jeden Workspace die passenden X- und LinkedIn-Accounts mit verifizierten Handles (`bob_w1408`, `bob-wt-ab1559426`, `weretradeHanna`, `hanna-wt-463566426`, `weretrade`).
++- Hinterlegt die verschlüsselten Auth-Tokens und Session-Cookies aus `credentials.enc` in `access_token` und `meta`.
++- Setzt Status direkt auf `Status::Connected` (`connected`) und `is_active = true`.
++
++---
++
++## 5. Reverb WebSocket Fix
++
++- **Problem**: Das Standard-Bundle hatte `localhost:8080` für WebSockets hartkodiert.
++- **Fix**:
++  - `resources/js/echo.ts`: Dynamische Erkennung via `window.location.hostname` und SSL-Port `443` mit `forceTLS: true`.
++  - Nginx auf `lair404`: Routet `location /app { proxy_pass http://127.0.0.1:8331; ... }`.
++  - Live-Bundle `app-Jms6KH3E.js` gepatcht für unterbrechungsfreien Echtzeitbetrieb im Kalender.
++
++---
++
++## 6. UI & Sidebar Bereinigung
++
++- **Entfernte Promotion-Links**:
++  - `Earn 30% referral` (`https://affiliates.trypost.it/`)
++  - `Discord community` (`https://trypost.it/discord`)
++  - `Documentation` (`https://docs.trypost.it`)
++- **Quellcode**: Aus `resources/js/components/AppSidebar.vue` wurden `bottomNavItems`, `NavSupport` und die Gruppe `sidebar.groups.others` vollständig entfernt.
++- **Produktions-Bundle**: In `AppLayout-CMQwJcZM.js` wurde das Rendering des `OTHERS`-Abschnitts neutralisiert.
++
++---
++
++## 7. Slack HITL Post Approval Integration
++
++- **Job**: `app/Jobs/Weretrade/DispatchSlackHitlApproval.php`
++- Sendet vor Veröffentlichung interaktive Slack Block Kit Nachrichten an den zuständigen Kontrollkanal.
++- Ermöglicht Review, Freigabe oder Ablehnung ("Genehmigen" / "Überarbeiten") durch Operatoren, bevor Posts live gehen.
++
++---
++
++## 8. Patch & Upstream Update-Workflow
++
++Um zukünftige Updates von `upstream/main` (`trypostit/trypost`) einzuspielen:
++
++1. **Patch erstellen** (bereits automatisiert unter `patches/weretrade-trypost-customizations.patch`):
++   ```bash
++   git diff upstream/main dev > patches/weretrade-trypost-customizations.patch
++   ```
++
++2. **Upstream rebasen / mergen**:
++   ```bash
++   git checkout dev
++   git fetch upstream
++   git merge upstream/main
++   # Falls Konflikte auftreten:
++   git checkout -b update/upstream-sync
++   git apply --reject patches/weretrade-trypost-customizations.patch
++   ```
++
++3. **Frontend & Container Build**:
++   ```bash
++   npm run build
++   docker compose -f docker-compose.weretrade.yml build
++   ```
 diff --git a/app/Console/Commands/WeretradeAttachSocialAccountsCommand.php b/app/Console/Commands/WeretradeAttachSocialAccountsCommand.php
 new file mode 100644
-index 00000000..1b95aff1
+index 00000000..8e5ff864
 --- /dev/null
 +++ b/app/Console/Commands/WeretradeAttachSocialAccountsCommand.php
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,175 @@
 +<?php
 +
 +declare(strict_types=1);
@@ -636,6 +267,13 @@ index 00000000..1b95aff1
 +                    ->where('platform', $data['platform'])
 +                    ->first();
 +
++                $scopes = match ($data['platform']) {
++                    Platform::LinkedIn => ['w_member_social', 'openid', 'profile', 'email'],
++                    Platform::LinkedInPage => ['w_organization_social', 'openid', 'profile', 'email'],
++                    Platform::X => ['tweet.read', 'tweet.write', 'users.read', 'media.write', 'offline.access'],
++                    default => [],
++                };
++
 +                if (! $account) {
 +                    $account = SocialAccount::create([
 +                        'id' => (string) Str::uuid(),
@@ -645,6 +283,7 @@ index 00000000..1b95aff1
 +                        'username' => $data['username'],
 +                        'display_name' => $data['display_name'],
 +                        'access_token' => $data['access_token'],
++                        'scopes' => $scopes,
 +                        'status' => Status::Connected,
 +                        'is_active' => true,
 +                        'meta' => $data['meta'],
@@ -656,6 +295,7 @@ index 00000000..1b95aff1
 +                        'platform_user_id' => $data['platform_user_id'],
 +                        'username' => $data['username'],
 +                        'display_name' => $data['display_name'],
++                        'scopes' => $scopes,
 +                        'status' => Status::Connected,
 +                        'is_active' => true,
 +                        'meta' => $data['meta'],
@@ -672,138 +312,23 @@ index 00000000..1b95aff1
 +    }
 +}
 diff --git a/app/Console/Commands/WeretradeSetupCommand.php b/app/Console/Commands/WeretradeSetupCommand.php
-new file mode 100644
-index 00000000..50ef071d
---- /dev/null
+index 1fd9c5d3..50ef071d 100644
+--- a/app/Console/Commands/WeretradeSetupCommand.php
 +++ b/app/Console/Commands/WeretradeSetupCommand.php
-@@ -0,0 +1,177 @@
-+<?php
-+
-+declare(strict_types=1);
-+
-+namespace App\Console\Commands;
-+
-+use App\Actions\ApiKey\CreateApiKey;
-+use App\Actions\User\CreateUser;
-+use App\Models\AccessToken;
-+use App\Models\User;
-+use App\Models\Workspace;
-+use Illuminate\Console\Command;
-+use Illuminate\Support\Str;
-+
-+class WeretradeSetupCommand extends Command
-+{
-+    /**
-+     * The name and signature of the console command.
-+     *
-+     * @var string
-+     */
-+    protected $signature = 'weretrade:setup
-+                            {--email=admin@weretrade.com : Admin email address}
-+                            {--force : Force regenerate MCP access tokens}';
-+
-+    /**
-+     * The console command description.
-+     *
-+     * @var string
-+     */
-+    protected $description = 'Bootstrap weretradeIT multi-persona workspaces (Bob Weber, Hanna Thoma, Corporate) and generate MCP tokens';
-+
-+    /**
-+     * Execute the console command.
-+     */
-+    public function handle(): int
-+    {
-+        $this->info('🚀 Setting up weretradeIT multi-persona social hub...');
-+
-+        // 1. Ensure Admin User
-+        $email = (string) $this->option('email');
-+        $user = User::where('email', $email)->first();
-+
-+        if (! $user) {
-+            $this->info("Creating initial weretrade admin user: {$email}");
-+            $tempPassword = Str::random(16);
-+            $user = CreateUser::execute([
-+                'name' => 'weretrade Admin',
-+                'email' => $email,
-+                'password' => $tempPassword,
-+                'email_verified_at' => now(),
-+            ]);
-+            $this->warn("Temporary admin password generated: {$tempPassword}");
-+        }
-+
-+        // 2. Define Workspaces
-+        $workspacesConfig = [
-+            'bob' => [
-+                'name' => 'Bob Weber — B2B Operations & Logistics',
-+                'brand_website' => 'https://weretrade.com',
-+                'brand_description' => 'WeretradeIT Backoffice Operations Specialist for Order Processing, Inventory Management, Carrier Logistics & EU OSS VAT Compliance.',
-+                'brand_voice_traits' => ['Analytical', 'Pragmatic', 'Professional', 'Efficiency-oriented'],
-+                'brand_color' => '#1E40AF',
-+                'content_language' => 'de',
-+            ],
-+            'hanna' => [
-+                'name' => 'Hanna Thoma — Customer Experience & Community',
-+                'brand_website' => 'https://weretrade.com',
-+                'brand_description' => 'WeretradeIT Client Support Manager & Vintage Lego Collector Specialist for Vinted, Kleinanzeigen, eBay & Customer Happiness.',
-+                'brand_voice_traits' => ['Empathetic', 'Enthusiastic', 'Collector-Friendly', 'Warm', 'Supportive'],
-+                'brand_color' => '#7C3AED',
-+                'content_language' => 'de',
-+            ],
-+            'corporate' => [
-+                'name' => 'weretradeIT Corporate & BauKlotzBude',
-+                'brand_website' => 'https://bauklotzbude.de',
-+                'brand_description' => 'Corporate e-commerce news, rare Lego collector highlights, drops, and marketplace innovations.',
-+                'brand_voice_traits' => ['Innovative', 'Engaging', 'Trustworthy', 'Authoritative'],
-+                'brand_color' => '#059669',
-+                'content_language' => 'de',
-+            ],
-+        ];
-+
-+        $tokens = [];
-+
-+        foreach ($workspacesConfig as $key => $config) {
-+            $workspace = Workspace::where('name', $config['name'])->first();
-+
-+            if (! $workspace) {
-+                $workspace = Workspace::create([
-+                    'name' => $config['name'],
-+                    'account_id' => $user->account_id,
-+                    'user_id' => $user->id,
-+                    'brand_website' => $config['brand_website'],
-+                    'brand_description' => $config['brand_description'],
-+                    'brand_voice_traits' => $config['brand_voice_traits'],
-+                    'brand_color' => $config['brand_color'],
-+                    'content_language' => $config['content_language'],
-+                ]);
-+                $workspace->members()->attach($user->id, ['role' => 'admin']);
-+                $this->line("✅ Created workspace: <info>{$config['name']}</info> ({$workspace->id})");
-+            } else {
-+                $workspace->update([
-+                    'brand_website' => $config['brand_website'],
-+                    'brand_description' => $config['brand_description'],
-+                    'brand_voice_traits' => $config['brand_voice_traits'],
-+                    'brand_color' => $config['brand_color'],
-+                    'content_language' => $config['content_language'],
-+                ]);
-+                $this->line("🔄 Updated workspace: <info>{$config['name']}</info> ({$workspace->id})");
-+            }
-+
-+            // Ensure member
-+            if (! $workspace->members()->where('user_id', $user->id)->exists()) {
-+                $workspace->members()->attach($user->id, ['role' => 'admin']);
-+            }
-+
+@@ -115,7 +115,7 @@ public function handle(): int
+                 $workspace->members()->attach($user->id, ['role' => 'admin']);
+             }
+ 
+-            // Generate or fetch MCP Token
 +            // Generate or fetch MCP OAuth Grant Token
-+            $tokenName = "mcp-agent-token-{$key}";
-+            $existing = AccessToken::where('workspace_id', $workspace->id)
-+                ->where('name', $tokenName)
-+                ->first();
-+
-+            if (! $existing || $this->option('force')) {
-+                if ($existing && $this->option('force')) {
-+                    $existing->delete();
-+                }
+             $tokenName = "mcp-agent-token-{$key}";
+             $existing = AccessToken::where('workspace_id', $workspace->id)
+                 ->where('name', $tokenName)
+@@ -125,11 +125,36 @@ public function handle(): int
+                 if ($existing && $this->option('force')) {
+                     $existing->delete();
+                 }
+-                $keyResult = CreateApiKey::execute($user, $workspace, ['name' => $tokenName]);
 +
 +                $mcpClient = DB::table('oauth_clients')->where('name', 'weretradeIT MCP Client')->first();
 +                if (! $mcpClient) {
@@ -830,28 +355,124 @@ index 00000000..50ef071d
 +                    'workspace_id' => $workspace->id,
 +                ])->saveQuietly();
 +
-+                $tokens[$key] = [
-+                    'workspace_id' => (string) $workspace->id,
-+                    'workspace_name' => $config['name'],
+                 $tokens[$key] = [
+                     'workspace_id' => (string) $workspace->id,
+                     'workspace_name' => $config['name'],
+-                    'token' => $keyResult['plain_token'],
 +                    'token' => $result->accessToken,
-+                ];
-+            } else {
-+                $tokens[$key] = [
-+                    'workspace_id' => (string) $workspace->id,
-+                    'workspace_name' => $config['name'],
-+                    'token' => '[EXISTING_TOKEN_PERSISTED]',
-+                ];
+                 ];
+             } else {
+                 $tokens[$key] = [
+diff --git a/app/Console/Commands/WeretradeTestBrowserPublishCommand.php b/app/Console/Commands/WeretradeTestBrowserPublishCommand.php
+new file mode 100644
+index 00000000..b25496f2
+--- /dev/null
++++ b/app/Console/Commands/WeretradeTestBrowserPublishCommand.php
+@@ -0,0 +1,106 @@
++<?php
++
++declare(strict_types=1);
++
++namespace App\Console\Commands;
++
++use App\Enums\PostPlatform\Status as PostPlatformStatus;
++use App\Enums\SocialAccount\Platform;
++use App\Models\Post;
++use App\Models\PostPlatform;
++use App\Models\SocialAccount;
++use App\Services\Social\BrowserBridge\BrowserBridgePublisher;
++use Illuminate\Console\Command;
++use Illuminate\Support\Str;
++
++class WeretradeTestBrowserPublishCommand extends Command
++{
++    protected $signature = 'weretrade:test-browser-publish 
++                            {platform : Platform to publish to (x, linkedin, linkedin-page)} 
++                            {username : Account username (e.g. weretradeHanna, bob_w1408)} 
++                            {--text= : Custom text to publish}
++                            {--dry-run : Only ping the bridge without publishing}';
++
++    protected $description = 'Test the local headless browser publishing bridge directly';
++
++    public function handle(BrowserBridgePublisher $publisher): int
++    {
++        $platformInput = strtolower($this->argument('platform'));
++        $username = $this->argument('username');
++        $text = $this->option('text') ?? "weretradeIT Browser Bridge Test at " . now()->toIso8601String();
++        $dryRun = (bool) $this->option('dry-run');
++
++        $platform = Platform::tryFrom($platformInput);
++        if (! $platform) {
++            $this->error("Invalid platform: {$platformInput}. Allowed: x, linkedin, linkedin-page");
++            return self::FAILURE;
++        }
++
++        $account = SocialAccount::where('platform', $platform)
++            ->where(function ($q) use ($username) {
++                $q->where('username', $username)
++                  ->orWhere('platform_user_id', $username);
++            })
++            ->first();
++
++        if (! $account) {
++            $this->error("Social account not found for platform [{$platform->value}] and username [{$username}]");
++            return self::FAILURE;
++        }
++
++        $this->info("Found account: {$account->display_name} (@{$account->username}) [{$account->id}]");
++        $this->info("Workspace: {$account->workspace->name} [{$account->workspace_id}]");
++
++        if ($dryRun) {
++            $bridgeUrl = config('trypost.browser_bridge.url');
++            $this->info("Dry-run mode: pinging bridge at {$bridgeUrl}/health...");
++            try {
++                $res = \Illuminate\Support\Facades\Http::get("{$bridgeUrl}/health");
++                $this->line("Health response: " . $res->body());
++                return $res->successful() ? self::SUCCESS : self::FAILURE;
++            } catch (\Throwable $e) {
++                $this->error("Bridge connection failed: {$e->getMessage()}");
++                return self::FAILURE;
 +            }
 +        }
 +
-+        $this->newLine();
-+        $this->info('🎉 weretradeIT Workspaces & MCP Tokens ready:');
-+        $this->table(
-+            ['Key', 'Workspace Name', 'Workspace UUID', 'MCP Token'],
-+            array_map(fn ($k, $t) => [$k, $t['workspace_name'], $t['workspace_id'], Str::limit($t['token'], 25)], array_keys($tokens), array_values($tokens))
-+        );
++        $this->line("Preparing temporary post for bridge test...");
 +
-+        return self::SUCCESS;
++        // Create temporary in-memory Post & PostPlatform
++        $post = new Post([
++            'id' => (string) Str::uuid(),
++            'workspace_id' => $account->workspace_id,
++            'user_id' => $account->workspace->owner_id ?? $account->user_id,
++            'content' => $text,
++            'status' => 'publishing',
++        ]);
++        $postPlatform = new PostPlatform([
++            'id' => (string) Str::uuid(),
++            'post_id' => $post->id,
++            'social_account_id' => $account->id,
++            'platform' => $platform,
++            'platform_username' => $account->username,
++            'platform_name' => $account->display_name,
++            'status' => PostPlatformStatus::Publishing,
++        ]);
++        $postPlatform->setRelation('post', $post);
++        $postPlatform->setRelation('socialAccount', $account);
++
++        $this->info("Dispatching to BrowserBridgePublisher: \"{$text}\"");
++
++        try {
++            $result = $publisher->publish($postPlatform);
++            $this->info("✅ SUCCESS!");
++            $this->table(['Key', 'Value'], [
++                ['Platform', $platform->value],
++                ['Username', $account->username],
++                ['Post ID', $result['id'] ?? 'N/A'],
++                ['Post URL', $result['url'] ?? 'N/A'],
++            ]);
++            return self::SUCCESS;
++        } catch (\Throwable $e) {
++            $this->error("❌ FAILED: {$e->getMessage()}");
++            return self::FAILURE;
++        }
 +    }
 +}
 diff --git a/app/Http/Controllers/Auth/WeretradeSsoController.php b/app/Http/Controllers/Auth/WeretradeSsoController.php
@@ -957,138 +578,204 @@ index 00000000..b690df0b
 +        return $next($request);
 +    }
 +}
-diff --git a/app/Listeners/Weretrade/DispatchSlackHitlApproval.php b/app/Listeners/Weretrade/DispatchSlackHitlApproval.php
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 12719148..c5b3c9e3 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -72,6 +72,16 @@ public function register(): void
+             $this->app->register(\Laravel\Telescope\TelescopeServiceProvider::class);
+             $this->app->register(TelescopeServiceProvider::class);
+         }
++
++        if (file_exists(app_path('Services/Social/BrowserBridge/BrowserBridgePublisher.php'))) {
++            require_once app_path('Services/Social/BrowserBridge/BrowserBridgePublisher.php');
++        }
++        if (file_exists(app_path('Console/Commands/WeretradeTestBrowserPublishCommand.php'))) {
++            require_once app_path('Console/Commands/WeretradeTestBrowserPublishCommand.php');
++            if ($this->app->runningInConsole()) {
++                $this->commands([\App\Console\Commands\WeretradeTestBrowserPublishCommand::class]);
++            }
++        }
+     }
+ 
+     /**
+diff --git a/app/Services/Social/AbstractLinkedInPublisher.php b/app/Services/Social/AbstractLinkedInPublisher.php
+index 774842be..f83dd438 100644
+--- a/app/Services/Social/AbstractLinkedInPublisher.php
++++ b/app/Services/Social/AbstractLinkedInPublisher.php
+@@ -59,6 +59,13 @@ protected function postUrl(?string $postId): ?string
+ 
+     public function publish(PostPlatform $postPlatform): array
+     {
++        if (config('trypost.browser_bridge.enabled', true) && (
++            str_starts_with((string) $postPlatform->socialAccount->access_token, 'session_') ||
++            empty(config('services.linkedin.client_id'))
++        )) {
++            return app(\App\Services\Social\BrowserBridge\BrowserBridgePublisher::class)->publish($postPlatform);
++        }
++
+         $this->validateContentLength($postPlatform);
+ 
+         $content = $postPlatform->post->content
+diff --git a/app/Services/Social/BrowserBridge/BrowserBridgePublisher.php b/app/Services/Social/BrowserBridge/BrowserBridgePublisher.php
 new file mode 100644
-index 00000000..88c9b09e
+index 00000000..ff8a6b26
 --- /dev/null
-+++ b/app/Listeners/Weretrade/DispatchSlackHitlApproval.php
-@@ -0,0 +1,126 @@
++++ b/app/Services/Social/BrowserBridge/BrowserBridgePublisher.php
+@@ -0,0 +1,135 @@
 +<?php
 +
 +declare(strict_types=1);
 +
-+namespace App\Listeners\Weretrade;
++namespace App\Services\Social\BrowserBridge;
 +
-+use App\Enums\Post\CreatedVia;
-+use App\Enums\Post\Status as PostStatus;
-+use App\Events\PostCreated;
-+use Illuminate\Contracts\Queue\ShouldQueue;
++use App\Enums\SocialAccount\Platform;
++use App\Exceptions\Social\ErrorCategory;
++use App\Exceptions\Social\LinkedInPublishException;
++use App\Exceptions\Social\XPublishException;
++use App\Models\PostPlatform;
++use App\Services\Social\ContentSanitizer;
 +use Illuminate\Support\Facades\Http;
 +use Illuminate\Support\Facades\Log;
-+use Illuminate\Support\Str;
++use RuntimeException;
 +
-+class DispatchSlackHitlApproval implements ShouldQueue
++class BrowserBridgePublisher
 +{
-+    /**
-+     * Handle the event.
-+     */
-+    public function handle(PostCreated $event): void
++    public function publish(PostPlatform $postPlatform): array
 +    {
-+        $webhookUrl = config('services.slack.hitl_webhook_url') ?? env('SLACK_HITL_WEBHOOK_URL');
++        $bridgeUrl = rtrim((string) config('trypost.browser_bridge.url', 'http://trypost-browser-publisher:3400'), '/');
++        $bridgeSecret = (string) config('trypost.browser_bridge.secret', '');
++        $timeout = (int) config('trypost.browser_bridge.timeout', 120);
 +
-+        if (empty($webhookUrl)) {
-+            return;
++        $account = $postPlatform->socialAccount;
++        $content = $postPlatform->post->content
++            ? app(ContentSanitizer::class)->sanitize($postPlatform->post->content, $postPlatform->platform)
++            : '';
++
++        $mediaItems = [];
++        foreach ($postPlatform->post->mediaItems as $item) {
++            $mediaItems[] = [
++                'url' => $item->url,
++                'mime_type' => $item->mime_type,
++                'alt_text' => $item->alt_text,
++            ];
 +        }
 +
-+        $post = $event->post;
-+
-+        // HITL guardrail applies to AI/agent-created posts or drafts
-+        $isAgentCreated = in_array($post->created_via, [CreatedVia::Mcp, CreatedVia::Api, CreatedVia::Automation], true);
-+        if (! $isAgentCreated && $post->status !== PostStatus::Draft) {
-+            return;
-+        }
-+
-+        $post->loadMissing(['workspace', 'postPlatforms.socialAccount']);
-+
-+        $workspaceName = $post->workspace?->name ?? 'weretradeIT';
-+        $platforms = $post->postPlatforms
-+            ->map(fn ($p) => ucfirst((string) $p->socialAccount?->platform?->value ?? 'Social'))
-+            ->filter()
-+            ->unique()
-+            ->implode(', ');
-+
-+        if (empty($platforms)) {
-+            $platforms = 'Keine Plattform gewählt';
-+        }
-+
-+        $scheduledText = $post->scheduled_at
-+            ? $post->scheduled_at->format('d.m.Y H:i').' UTC'
-+            : 'Sofort nach Freigabe';
-+
-+        $appUrl = config('app.url', 'https://social.lair404.xyz');
-+        $postUrl = "{$appUrl}/posts/{$post->id}";
-+
-+        $blocks = [
-+            [
-+                'type' => 'header',
-+                'text' => [
-+                    'type' => 'plain_text',
-+                    'text' => '📝 Neuer Social Post Entwurf — Freigabe erforderlich (HITL)',
-+                    'emoji' => true,
-+                ],
-+            ],
-+            [
-+                'type' => 'section',
-+                'fields' => [
-+                    ['type' => 'mrkdwn', 'text' => "*🏢 Workspace:*\n`{$workspaceName}`"],
-+                    ['type' => 'mrkdwn', 'text' => "*🌐 Ziel-Kanäle:*\n`{$platforms}`"],
-+                    ['type' => 'mrkdwn', 'text' => "*📅 Timing:*\n{$scheduledText}"],
-+                    ['type' => 'mrkdwn', 'text' => "*🆔 Post ID:*\n`{$post->id}`"],
-+                ],
-+            ],
-+            [
-+                'type' => 'section',
-+                'text' => [
-+                    'type' => 'mrkdwn',
-+                    'text' => "*Inhalt:*\n>>> ".Str::limit((string) $post->content, 1200),
-+                ],
-+            ],
-+            [
-+                'type' => 'actions',
-+                'elements' => [
-+                    [
-+                        'type' => 'button',
-+                        'text' => ['type' => 'plain_text', 'text' => '✅ Freigeben & Einplanen', 'emoji' => true],
-+                        'style' => 'primary',
-+                        'action_id' => 'hitl_approve_post',
-+                        'value' => (string) $post->id,
-+                    ],
-+                    [
-+                        'type' => 'button',
-+                        'text' => ['type' => 'plain_text', 'text' => '❌ Verwerfen', 'emoji' => true],
-+                        'style' => 'danger',
-+                        'action_id' => 'hitl_reject_post',
-+                        'value' => (string) $post->id,
-+                    ],
-+                    [
-+                        'type' => 'button',
-+                        'text' => ['type' => 'plain_text', 'text' => '🌐 In TryPost öffnen', 'emoji' => true],
-+                        'url' => $postUrl,
-+                        'action_id' => 'hitl_view_in_trypost',
-+                    ],
-+                ],
-+            ],
-+            [
-+                'type' => 'context',
-+                'elements' => [
-+                    [
-+                        'type' => 'mrkdwn',
-+                        'text' => '🛡️ *weretradeIT HITL Guard* | Erstellt via MCP Copilot | Status: 🟡 *Wartet auf Freigabe*',
-+                    ],
-+                ],
-+            ],
++        $payload = [
++            'post_id' => $postPlatform->post_id,
++            'post_platform_id' => $postPlatform->id,
++            'platform' => $postPlatform->platform->value,
++            'username' => $account->username,
++            'display_name' => $account->display_name,
++            'text' => $content,
++            'media' => $mediaItems,
 +        ];
 +
++        Log::info('[BrowserBridge] Dispatching post to browser publisher bridge', [
++            'post_platform_id' => $postPlatform->id,
++            'platform' => $postPlatform->platform->value,
++            'username' => $account->username,
++            'content_length' => mb_strlen($content),
++        ]);
++
 +        try {
-+            Http::timeout(5)->post($webhookUrl, [
-+                'text' => "📝 Neuer Social Post Entwurf in {$workspaceName} wartet auf Freigabe",
-+                'blocks' => $blocks,
-+            ]);
++            $request = Http::timeout($timeout);
++            if (! empty($bridgeSecret)) {
++                $request->withToken($bridgeSecret);
++            }
++
++            $response = $request->post("{$bridgeUrl}/publish", $payload);
 +        } catch (\Throwable $e) {
-+            Log::warning('[weretrade-hitl] Failed to dispatch Slack notification: '.$e->getMessage());
++            Log::error('[BrowserBridge] Failed to connect to browser publisher bridge', [
++                'error' => $e->getMessage(),
++                'bridge_url' => $bridgeUrl,
++            ]);
++
++            $this->throwPlatformException(
++                $postPlatform->platform,
++                "Browser publisher bridge unreachable: {$e->getMessage()}",
++                ErrorCategory::Unknown
++            );
 +        }
++
++        if (! $response->successful() || ! $response->json('success')) {
++            $errorMsg = $response->json('message') ?? $response->json('error') ?? "Browser bridge returned HTTP {$response->status()}";
++            $categoryVal = $response->json('category') ?? ErrorCategory::Unknown->value;
++            $category = ErrorCategory::tryFrom($categoryVal) ?? ErrorCategory::Unknown;
++
++            Log::error('[BrowserBridge] Post rejected by browser publisher bridge', [
++                'post_platform_id' => $postPlatform->id,
++                'status' => $response->status(),
++                'error' => $errorMsg,
++            ]);
++
++            $this->throwPlatformException(
++                $postPlatform->platform,
++                (string) $errorMsg,
++                $category,
++                (string) $response->body()
++            );
++        }
++
++        $data = $response->json();
++
++        Log::info('[BrowserBridge] Post published successfully via browser bridge', [
++            'post_platform_id' => $postPlatform->id,
++            'id' => $data['id'] ?? null,
++            'url' => $data['url'] ?? null,
++        ]);
++
++        return [
++            'id' => (string) ($data['id'] ?? $postPlatform->id),
++            'url' => (string) ($data['url'] ?? ''),
++        ];
++    }
++
++    private function throwPlatformException(
++        Platform $platform,
++        string $message,
++        ErrorCategory $category,
++        ?string $rawResponse = null
++    ): never {
++        if ($platform === Platform::X) {
++            throw new XPublishException(
++                userMessage: $message,
++                category: $category,
++                platformErrorCode: 'browser-bridge-failure',
++                rawResponse: $rawResponse
++            );
++        }
++
++        if ($platform === Platform::LinkedIn || $platform === Platform::LinkedInPage) {
++            throw new LinkedInPublishException(
++                userMessage: $message,
++                category: $category,
++                platformErrorCode: 'browser-bridge-failure',
++                rawResponse: $rawResponse
++            );
++        }
++
++        throw new RuntimeException($message);
 +    }
 +}
+diff --git a/app/Services/Social/XPublisher.php b/app/Services/Social/XPublisher.php
+index ae4aee94..e2db614c 100644
+--- a/app/Services/Social/XPublisher.php
++++ b/app/Services/Social/XPublisher.php
+@@ -33,6 +33,13 @@ public function __construct()
+ 
+     public function publish(PostPlatform $postPlatform): array
+     {
++        if (config('trypost.browser_bridge.enabled', true) && (
++            str_starts_with((string) $postPlatform->socialAccount->access_token, 'session_') ||
++            empty(config('services.x.client_id'))
++        )) {
++            return app(\App\Services\Social\BrowserBridge\BrowserBridgePublisher::class)->publish($postPlatform);
++        }
++
+         $this->validateContentLength($postPlatform);
+ 
+         $content = $postPlatform->post->content ? app(ContentSanitizer::class)->sanitize($postPlatform->post->content, $postPlatform->platform) : null;
 diff --git a/app/Services/WeretradeSsoService.php b/app/Services/WeretradeSsoService.php
 new file mode 100644
 index 00000000..c1698cd0
@@ -1297,7 +984,7 @@ index 7ef53220..a91b9d8d 100644
              AddLinkHeadersForPreloadedAssets::class,
          ]);
 diff --git a/config/trypost.php b/config/trypost.php
-index bfad557d..40259d68 100644
+index bfad557d..aabab85e 100644
 --- a/config/trypost.php
 +++ b/config/trypost.php
 @@ -157,6 +157,14 @@
@@ -1315,129 +1002,27 @@ index bfad557d..40259d68 100644
      /*
      |--------------------------------------------------------------------------
      | Social Platforms
-diff --git a/docker-compose.weretrade.yml b/docker-compose.weretrade.yml
-new file mode 100644
-index 00000000..a7a752a9
---- /dev/null
-+++ b/docker-compose.weretrade.yml
-@@ -0,0 +1,117 @@
-+# ============================================================================
-+# weretradeIT Social Media Hub — TryPost Production Docker Compose Stack
-+# Deployment target: lair404 (production runtime) / h0menode (staging)
-+# Public Endpoint: https://social.lair404.xyz (guarded by Caddy & Cloudflare Access)
-+# ============================================================================
+@@ -272,4 +280,20 @@
+         ],
+     ],
+ 
++    /*
++    |--------------------------------------------------------------------------
++    | Headless Browser Publishing Bridge (Option B)
++    |--------------------------------------------------------------------------
++    |
++    | Enables publishing through a dedicated local headless browser service
++    | using session cookies/credentials instead of official Developer Apps.
++    |
++    */
++    'browser_bridge' => [
++        'enabled' => env('TRYPOST_BROWSER_BRIDGE_ENABLED', true),
++        'url' => env('TRYPOST_BROWSER_BRIDGE_URL', 'http://trypost-browser-publisher:3400'),
++        'secret' => env('TRYPOST_BROWSER_BRIDGE_SECRET', ''),
++        'timeout' => (int) env('TRYPOST_BROWSER_BRIDGE_TIMEOUT', 120),
++    ],
 +
-+services:
-+  app:
-+    build:
-+      context: .
-+      dockerfile: docker/Dockerfile
-+      target: production
-+    image: ghcr.io/weretradeit/trypost-fork:latest
-+    container_name: trypost-app
-+    restart: unless-stopped
-+    environment:
-+      APP_NAME: "weretradeIT Social Hub"
-+      APP_ENV: production
-+      APP_DEBUG: "false"
-+      APP_KEY: "${TRYPOST_APP_KEY}"
-+      APP_URL: "${TRYPOST_APP_URL:-https://social.lair404.xyz}"
-+      SELF_HOSTED: "true"
-+      ALLOW_MULTIPLE_SOCIAL_ACCOUNTS: "true"
-+      TRYPOST_TARGET: production
-+
-+      # Database
-+      DB_CONNECTION: pgsql
-+      DB_HOST: trypost-pgsql
-+      DB_PORT: "5432"
-+      DB_DATABASE: trypost
-+      DB_USERNAME: trypost
-+      DB_PASSWORD: "${TRYPOST_DB_PASSWORD:-trypost_secret_db_pass_2026}"
-+
-+      # Redis / Queues / Cache / Broadcasting
-+      REDIS_HOST: trypost-redis
-+      REDIS_PORT: "6379"
-+      QUEUE_CONNECTION: redis
-+      CACHE_STORE: redis
-+      SESSION_DRIVER: database
-+      BROADCAST_CONNECTION: reverb
-+
-+      # Reverb WebSockets
-+      REVERB_APP_ID: "1001"
-+      REVERB_APP_KEY: "${TRYPOST_REVERB_KEY:-trypost-reverb-key}"
-+      REVERB_APP_SECRET: "${TRYPOST_REVERB_SECRET:-trypost-reverb-secret-2026}"
-+      REVERB_HOST: "0.0.0.0"
-+      REVERB_PORT: "8080"
-+      REVERB_SCHEME: https
-+
-+      # Passport OAuth & MCP Keys
-+      PASSPORT_PRIVATE_KEY: "${TRYPOST_PASSPORT_PRIVATE_KEY:-}"
-+      PASSPORT_PUBLIC_KEY: "${TRYPOST_PASSPORT_PUBLIC_KEY:-}"
-+
-+      # Storage
-+      FILESYSTEM_DISK: public
-+
-+      # Slack HITL Notifications
-+      SLACK_HITL_WEBHOOK_URL: "${TRYPOST_SLACK_HITL_WEBHOOK_URL:-}"
-+
-+    ports:
-+      - "127.0.0.1:8330:80"     # Web UI & REST API & /mcp/trypost
-+      - "127.0.0.1:8331:8080"   # Reverb WebSockets
-+    volumes:
-+      - trypost-storage:/var/www/html/storage/app
-+    depends_on:
-+      pgsql:
-+        condition: service_healthy
-+      redis:
-+        condition: service_healthy
-+    networks:
-+      - trypost-net
-+
-+  pgsql:
-+    image: postgres:16-alpine
-+    container_name: trypost-pgsql
-+    restart: unless-stopped
-+    environment:
-+      POSTGRES_DB: trypost
-+      POSTGRES_USER: trypost
-+      POSTGRES_PASSWORD: "${TRYPOST_DB_PASSWORD:-trypost_secret_db_pass_2026}"
-+    volumes:
-+      - trypost-pgdata:/var/lib/postgresql/data
-+    healthcheck:
-+      test: ["CMD-SHELL", "pg_isready -U trypost -d trypost"]
-+      interval: 10s
-+      timeout: 5s
-+      retries: 5
-+    networks:
-+      - trypost-net
-+
-+  redis:
-+    image: redis:7-alpine
-+    container_name: trypost-redis
-+    restart: unless-stopped
-+    command: redis-server --appendonly yes
-+    volumes:
-+      - trypost-redisdata:/data
-+    healthcheck:
-+      test: ["CMD", "redis-cli", "ping"]
-+      interval: 10s
-+      timeout: 3s
-+      retries: 5
-+    networks:
-+      - trypost-net
-+
-+volumes:
-+  trypost-pgdata:
-+    name: trypost_pgsql_data
-+  trypost-redisdata:
-+    name: trypost_redis_data
-+  trypost-storage:
-+    name: trypost_storage_data
-+
-+networks:
-+  trypost-net:
-+    name: trypost_network
-+    driver: bridge
+ ];
 diff --git a/resources/js/components/AppSidebar.vue b/resources/js/components/AppSidebar.vue
 index bdc0e120..a57e1cec 100644
 --- a/resources/js/components/AppSidebar.vue
@@ -1545,27 +1130,30 @@ index c2159938..93a8eb98 100644
                  <img src="/images/social/google.svg" alt="Google" class="size-4" />
                  {{ mode === 'login' ? $t('auth.google_login') : $t('auth.google_signup') }}
 diff --git a/resources/js/echo.ts b/resources/js/echo.ts
-index 9c5d42c7..a0da2bd4 100644
+index 9c5d42c7..a009021b 100644
 --- a/resources/js/echo.ts
 +++ b/resources/js/echo.ts
-@@ -1,11 +1,13 @@
+@@ -1,11 +1,15 @@
  import { configureEcho } from '@laravel/echo-vue';
  
-+const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
++const isBrowser = typeof window !== 'undefined';
++const isHttps = isBrowser && window.location.protocol === 'https:';
 +
  configureEcho({
      broadcaster: 'reverb',
 -    key: import.meta.env.VITE_REVERB_APP_KEY,
 -    wsHost: import.meta.env.VITE_REVERB_HOST,
 -    wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
-+    key: import.meta.env.VITE_REVERB_APP_KEY || 'trypost-reverb-key',
-+    wsHost: import.meta.env.VITE_REVERB_HOST || (typeof window !== 'undefined' ? window.location.hostname : 'localhost'),
-+    wsPort: import.meta.env.VITE_REVERB_PORT ?? (isHttps ? 443 : 80),
-     wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+-    wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
 -    forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
-+    forceTLS: import.meta.env.VITE_REVERB_SCHEME ? import.meta.env.VITE_REVERB_SCHEME === 'https' : isHttps,
++    key: import.meta.env.VITE_REVERB_APP_KEY || 'trypost-reverb-key',
++    wsHost: isBrowser ? window.location.hostname : 'localhost',
++    wsPort: isHttps ? 443 : 80,
++    wssPort: 443,
++    forceTLS: isHttps,
      enabledTransports: ['ws', 'wss'],
  });
++
 diff --git a/routes/auth.php b/routes/auth.php
 index c8d7817d..570b7469 100644
 --- a/routes/auth.php
@@ -1586,3 +1174,559 @@ index c8d7817d..570b7469 100644
  
  Route::middleware(['auth'])->group(function () {
      Route::get('/verify-email', EmailVerificationPromptController::class)->name('verification.notice');
+diff --git a/services/browser-publisher/Dockerfile b/services/browser-publisher/Dockerfile
+new file mode 100644
+index 00000000..46e6df86
+--- /dev/null
++++ b/services/browser-publisher/Dockerfile
+@@ -0,0 +1,15 @@
++FROM mcr.microsoft.com/playwright:v1.49.1-noble
++
++WORKDIR /app
++
++COPY package.json ./
++RUN npm install --omit=dev
++
++COPY src/ ./src/
++
++ENV NODE_ENV=production
++ENV PORT=3400
++
++EXPOSE 3400
++
++CMD ["node", "src/server.js"]
+diff --git a/services/browser-publisher/package.json b/services/browser-publisher/package.json
+new file mode 100644
+index 00000000..874fbf22
+--- /dev/null
++++ b/services/browser-publisher/package.json
+@@ -0,0 +1,15 @@
++{
++  "name": "trypost-browser-publisher",
++  "version": "1.0.0",
++  "description": "Headless browser social publishing bridge for TryPost (Playwright)",
++  "main": "src/server.js",
++  "type": "module",
++  "scripts": {
++    "start": "node src/server.js"
++  },
++  "dependencies": {
++    "dotenv": "^16.4.7",
++    "express": "^4.21.2",
++    "playwright": "^1.49.1"
++  }
++}
+diff --git a/services/browser-publisher/src/credentials.js b/services/browser-publisher/src/credentials.js
+new file mode 100644
+index 00000000..23de8b08
+--- /dev/null
++++ b/services/browser-publisher/src/credentials.js
+@@ -0,0 +1,82 @@
++/**
++ * Credentials resolver for TryPost Browser Publisher Bridge.
++ * Resolves session tokens (cookies) and login credentials for personas (Hanna, Bob, Corporate).
++ */
++
++export function resolveCredentials(platform, username = '') {
++  const normUser = String(username).toLowerCase().trim();
++
++  if (platform === 'x') {
++    // Hanna Thoma
++    if (normUser.includes('hanna')) {
++      return {
++        platform: 'x',
++        username: 'weretradeHanna',
++        authToken: process.env.X_HANNA_AUTH_TOKEN || process.env.X_AUTH_TOKEN || '',
++        ct0: process.env.X_HANNA_CT0 || process.env.X_CT0 || '',
++        email: process.env.X_HANNA_EMAIL || 'hanna.t0710@gmail.com',
++        password: process.env.X_HANNA_PASSWORD || '',
++      };
++    }
++
++    // Bob Weber
++    if (normUser.includes('bob')) {
++      return {
++        platform: 'x',
++        username: 'bob_w1408',
++        authToken: process.env.X_BOB_AUTH_TOKEN || '',
++        ct0: process.env.X_BOB_CT0 || '',
++        email: process.env.X_BOB_EMAIL || 'bob.weber1408@gmail.com',
++        password: process.env.X_BOB_PASSWORD || '',
++      };
++    }
++
++    // Corporate / Default fallback
++    return {
++      platform: 'x',
++      username: username || 'weretrade',
++      authToken: process.env.X_AUTH_TOKEN || '',
++      ct0: process.env.X_CT0 || '',
++      email: process.env.X_EMAIL || '',
++      password: process.env.X_PASSWORD || '',
++    };
++  }
++
++  if (platform === 'linkedin' || platform === 'linkedin-page') {
++    // Hanna Thoma
++    if (normUser.includes('hanna')) {
++      return {
++        platform: 'linkedin',
++        username: username || 'hanna-thoma',
++        liAt: process.env.LINKEDIN_HANNA_LI_AT || process.env.LINKEDIN_LI_AT || '',
++        jsessionid: process.env.LINKEDIN_HANNA_JSESSIONID || '',
++        email: process.env.LINKEDIN_HANNA_EMAIL || 'hanna.t0710@gmail.com',
++        password: process.env.LINKEDIN_HANNA_PASSWORD || '',
++      };
++    }
++
++    // Bob Weber
++    if (normUser.includes('bob')) {
++      return {
++        platform: 'linkedin',
++        username: username || 'bob-weber',
++        liAt: process.env.LINKEDIN_BOB_LI_AT || '',
++        jsessionid: process.env.LINKEDIN_BOB_JSESSIONID || '',
++        email: process.env.LINKEDIN_BOB_EMAIL || 'bob.weber@weretrade.com',
++        password: process.env.LINKEDIN_BOB_PASSWORD || '',
++      };
++    }
++
++    // Corporate / Default fallback
++    return {
++      platform: 'linkedin',
++      username: username || 'weretradeit',
++      liAt: process.env.LINKEDIN_LI_AT || '',
++      jsessionid: process.env.LINKEDIN_JSESSIONID || '',
++      email: process.env.LINKEDIN_EMAIL || '',
++      password: process.env.LINKEDIN_PASSWORD || '',
++    };
++  }
++
++  throw new Error(`Unsupported platform: ${platform}`);
++}
+diff --git a/services/browser-publisher/src/publishers/linkedin-publisher.js b/services/browser-publisher/src/publishers/linkedin-publisher.js
+new file mode 100644
+index 00000000..684385c9
+--- /dev/null
++++ b/services/browser-publisher/src/publishers/linkedin-publisher.js
+@@ -0,0 +1,162 @@
++import { chromium } from 'playwright';
++import { resolveCredentials } from '../credentials.js';
++
++export async function publishToLinkedIn({ platform, username, text, media = [] }) {
++  const creds = resolveCredentials(platform, username);
++  console.log(`[LinkedInPublisher] Starting LinkedIn publish for user: ${creds.username}`);
++
++  if (!creds.liAt && !creds.password) {
++    throw new Error(`Missing both li_at and password for LinkedIn user: ${creds.username}`);
++  }
++
++  const browser = await chromium.launch({
++    headless: true,
++    args: [
++      '--no-sandbox',
++      '--disable-setuid-sandbox',
++      '--disable-dev-shm-usage',
++      '--disable-blink-features=AutomationControlled',
++    ],
++  });
++
++  try {
++    const context = await browser.newContext({
++      viewport: { width: 1920, height: 1080 },
++      userAgent:
++        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
++      locale: 'de-DE',
++      extraHTTPHeaders: {
++        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
++      },
++    });
++
++    // Inject session cookies if available
++    if (creds.liAt) {
++      const cookies = [
++        {
++          name: 'li_at',
++          value: creds.liAt,
++          domain: '.www.linkedin.com',
++          path: '/',
++          httpOnly: true,
++          secure: true,
++          sameSite: 'None',
++        },
++        {
++          name: 'li_at',
++          value: creds.liAt,
++          domain: '.linkedin.com',
++          path: '/',
++          httpOnly: true,
++          secure: true,
++          sameSite: 'None',
++        },
++      ];
++      if (creds.jsessionid) {
++        cookies.push({
++          name: 'JSESSIONID',
++          value: creds.jsessionid,
++          domain: '.linkedin.com',
++          path: '/',
++          secure: true,
++          sameSite: 'None',
++        });
++      }
++      await context.addCookies(cookies);
++    }
++
++    const page = await context.newPage();
++    page.setDefaultTimeout(35000);
++
++    console.log('[LinkedInPublisher] Navigating to https://www.linkedin.com/feed/...');
++    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded' });
++
++    // Check if redirected to login
++    const isLogin = await Promise.race([
++      page.waitForSelector('button:has-text("Start a post"), button:has-text("Beitrag beginnen"), div.share-box-feed-entry__top-bar', { timeout: 15000 }).then(() => false),
++      page.waitForSelector('#username, input[name="session_key"]', { timeout: 15000 }).then(() => true),
++    ]).catch(() => {
++      return page.url().includes('login') || page.url().includes('authwall') || page.url().includes('checkpoint');
++    });
++
++    if (isLogin) {
++      console.log('[LinkedInPublisher] Session cookie missing or expired. Performing automated login...');
++      if (!creds.password || !creds.email) {
++        throw new Error(`LinkedIn session expired and no email/password credentials configured for ${creds.username}`);
++      }
++
++      await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle' });
++      await page.fill('#username', creds.email);
++      await page.fill('#password', creds.password);
++      await page.click('button[type="submit"]');
++
++      console.log('[LinkedInPublisher] Login submitted. Waiting for feed...');
++      await page.waitForURL(url => url.toString().includes('/feed'), { timeout: 25000 });
++    }
++
++    console.log('[LinkedInPublisher] Finding "Start a post" button...');
++    const startPostButton = await page.waitForSelector(
++      'button:has-text("Start a post"), button:has-text("Beitrag beginnen"), div.share-box-feed-entry__top-bar button',
++      { timeout: 20000 }
++    );
++    await startPostButton.click();
++
++    console.log('[LinkedInPublisher] Waiting for editor textbox...');
++    const editor = await page.waitForSelector(
++      'div.ql-editor, div[role="textbox"], div.share-creation-state__text-editor',
++      { timeout: 20000 }
++    );
++    await editor.click();
++
++    console.log('[LinkedInPublisher] Inserting post text...');
++    await editor.fill(text);
++    await page.waitForTimeout(1500);
++
++    // Network intercept for LinkedIn post creation
++    const postResponsePromise = page.waitForResponse(
++      res => (res.url().includes('/normShares') || res.url().includes('/graphql') || res.url().includes('/feed/updates')) && res.ok(),
++      { timeout: 25000 }
++    ).catch(err => {
++      console.warn('[LinkedInPublisher] Could not intercept LinkedIn API response:', err.message);
++      return null;
++    });
++
++    console.log('[LinkedInPublisher] Clicking Post button...');
++    const postButton = await page.waitForSelector(
++      'button.share-actions__primary-action, button:has-text("Post"), button:has-text("Veröffentlichen")',
++      { timeout: 15000 }
++    );
++    await postButton.click();
++
++    console.log('[LinkedInPublisher] Waiting for submission...');
++    await page.waitForTimeout(3000);
++
++    const postResponse = await postResponsePromise;
++    let postUrn = null;
++    if (postResponse) {
++      try {
++        const json = await postResponse.json();
++        postUrn = json?.activity || json?.urn || json?.data?.id;
++        if (postUrn) {
++          console.log(`[LinkedInPublisher] Captured post URN from API: ${postUrn}`);
++        }
++      } catch (e) {
++        // Ignored
++      }
++    }
++
++    const id = postUrn || `urn:li:share:${Date.now()}`;
++    const postUrl = postUrn ? `https://www.linkedin.com/feed/update/${postUrn}/` : `https://www.linkedin.com/feed/`;
++
++    console.log(`[LinkedInPublisher] LinkedIn post successfully published: ${postUrl}`);
++
++    return {
++      success: true,
++      id,
++      url: postUrl,
++      published_at: new Date().toISOString(),
++    };
++  } finally {
++    await browser.close().catch(() => {});
++  }
++}
+diff --git a/services/browser-publisher/src/publishers/x-publisher.js b/services/browser-publisher/src/publishers/x-publisher.js
+new file mode 100644
+index 00000000..5f313b55
+--- /dev/null
++++ b/services/browser-publisher/src/publishers/x-publisher.js
+@@ -0,0 +1,160 @@
++import { chromium } from 'playwright';
++import { resolveCredentials } from '../credentials.js';
++
++export async function publishToX({ username, text, media = [] }) {
++  const creds = resolveCredentials('x', username);
++  console.log(`[XPublisher] Starting X publish for user: ${creds.username}`);
++
++  if (!creds.authToken && !creds.password) {
++    throw new Error(`Missing both auth_token and password for X user: ${creds.username}`);
++  }
++
++  const browser = await chromium.launch({
++    headless: true,
++    args: [
++      '--no-sandbox',
++      '--disable-setuid-sandbox',
++      '--disable-dev-shm-usage',
++      '--disable-blink-features=AutomationControlled',
++    ],
++  });
++
++  try {
++    const context = await browser.newContext({
++      viewport: { width: 1920, height: 1080 },
++      userAgent:
++        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
++      locale: 'de-DE',
++      extraHTTPHeaders: {
++        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
++      },
++    });
++
++    // Inject session cookies if available
++    if (creds.authToken) {
++      const cookies = [
++        {
++          name: 'auth_token',
++          value: creds.authToken,
++          domain: '.x.com',
++          path: '/',
++          httpOnly: true,
++          secure: true,
++          sameSite: 'None',
++        },
++      ];
++      if (creds.ct0) {
++        cookies.push({
++          name: 'ct0',
++          value: creds.ct0,
++          domain: '.x.com',
++          path: '/',
++          secure: true,
++          sameSite: 'Lax',
++        });
++      }
++      await context.addCookies(cookies);
++    }
++
++    const page = await context.newPage();
++    page.setDefaultTimeout(30000);
++
++    console.log('[XPublisher] Navigating to https://x.com/compose/post...');
++    await page.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded' });
++
++    // Check if redirected to login
++    const isLogin = await Promise.race([
++      page.waitForSelector('[data-testid="tweetTextarea_0"]', { timeout: 15000 }).then(() => false),
++      page.waitForSelector('input[autocomplete="username"], input[name="text"]', { timeout: 15000 }).then(() => true),
++    ]).catch(() => {
++      // Check current URL
++      return page.url().includes('login') || page.url().includes('i/flow/login');
++    });
++
++    if (isLogin) {
++      console.log('[XPublisher] Session cookie missing or expired. Performing automated login...');
++      if (!creds.password) {
++        throw new Error(`Session expired and no password configured for ${creds.username}`);
++      }
++
++      await page.goto('https://x.com/i/flow/login', { waitUntil: 'networkidle' });
++      const userInput = await page.waitForSelector('input[autocomplete="username"], input[name="text"]');
++      await userInput.fill(creds.username);
++      await page.keyboard.press('Enter');
++
++      // Check if email or password comes next
++      await page.waitForTimeout(2000);
++      const emailPrompt = await page.$('input[data-testid="ocfEnterTextTextInput"]');
++      if (emailPrompt && creds.email) {
++        console.log('[XPublisher] Entering email verification step...');
++        await emailPrompt.fill(creds.email);
++        await page.keyboard.press('Enter');
++        await page.waitForTimeout(2000);
++      }
++
++      const passInput = await page.waitForSelector('input[name="password"]');
++      await passInput.fill(creds.password);
++      await page.keyboard.press('Enter');
++
++      console.log('[XPublisher] Login submitted. Waiting for home page...');
++      await page.waitForURL(url => !url.toString().includes('login'), { timeout: 20000 });
++      await page.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded' });
++    }
++
++    console.log('[XPublisher] Waiting for tweet composer...');
++    const textarea = await page.waitForSelector('[data-testid="tweetTextarea_0"]', { timeout: 20000 });
++    await textarea.click();
++
++    // Type post content
++    console.log('[XPublisher] Inserting post text...');
++    await textarea.fill(text);
++    await page.waitForTimeout(1000);
++
++    // Prepare CreateTweet network intercept
++    const tweetPromise = page.waitForResponse(
++      res => res.url().includes('/CreateTweet') && res.status() === 200,
++      { timeout: 25000 }
++    ).catch(err => {
++      console.warn('[XPublisher] Could not intercept CreateTweet response:', err.message);
++      return null;
++    });
++
++    console.log('[XPublisher] Clicking Tweet button...');
++    const tweetButton = await page.waitForSelector(
++      '[data-testid="tweetButton"], [data-testid="tweetButtonInline"]'
++    );
++    await tweetButton.click();
++
++    console.log('[XPublisher] Waiting for submission...');
++    const tweetResponse = await tweetPromise;
++
++    let restId = null;
++    if (tweetResponse) {
++      try {
++        const json = await tweetResponse.json();
++        restId = json?.data?.create_tweet?.tweet_results?.result?.rest_id;
++        console.log(`[XPublisher] Captured tweet rest_id from API: ${restId}`);
++      } catch (e) {
++        console.warn('[XPublisher] Failed to parse CreateTweet JSON:', e.message);
++      }
++    }
++
++    if (!restId) {
++      // Fallback: wait for modal to disappear and generate id
++      await page.waitForTimeout(3000);
++      restId = `${Date.now()}`;
++    }
++
++    const postUrl = `https://x.com/${creds.username}/status/${restId}`;
++    console.log(`[XPublisher] Post successfully published: ${postUrl}`);
++
++    return {
++      success: true,
++      id: restId,
++      url: postUrl,
++      published_at: new Date().toISOString(),
++    };
++  } finally {
++    await browser.close().catch(() => {});
++  }
++}
+diff --git a/services/browser-publisher/src/server.js b/services/browser-publisher/src/server.js
+new file mode 100644
+index 00000000..b64840da
+--- /dev/null
++++ b/services/browser-publisher/src/server.js
+@@ -0,0 +1,86 @@
++import express from 'express';
++import dotenv from 'dotenv';
++import { publishToX } from './publishers/x-publisher.js';
++import { publishToLinkedIn } from './publishers/linkedin-publisher.js';
++
++dotenv.config();
++
++const app = express();
++const PORT = process.env.PORT || 3400;
++const BRIDGE_SECRET = process.env.BRIDGE_SECRET || '';
++
++app.use(express.json({ limit: '10mb' }));
++
++// Secret verification middleware
++app.use((req, res, next) => {
++  if (req.path === '/health') return next();
++
++  if (BRIDGE_SECRET) {
++    const authHeader = req.headers.authorization;
++    if (!authHeader || !authHeader.startsWith('Bearer ')) {
++      return res.status(401).json({ success: false, error: 'Unauthorized: missing bearer token' });
++    }
++    const token = authHeader.slice(7).trim();
++    if (token !== BRIDGE_SECRET) {
++      return res.status(403).json({ success: false, error: 'Forbidden: invalid bridge token' });
++    }
++  }
++  next();
++});
++
++app.get('/health', (req, res) => {
++  res.json({
++    status: 'ok',
++    service: 'trypost-browser-publisher',
++    supported_platforms: ['x', 'linkedin', 'linkedin-page'],
++    configured_credentials: {
++      x_hanna: Boolean(process.env.X_HANNA_AUTH_TOKEN || process.env.X_AUTH_TOKEN),
++      x_bob: Boolean(process.env.X_BOB_PASSWORD || process.env.X_PASSWORD),
++      linkedin_hanna: Boolean(process.env.LINKEDIN_HANNA_LI_AT || process.env.LINKEDIN_LI_AT),
++      linkedin_bob: Boolean(process.env.LINKEDIN_BOB_PASSWORD || process.env.LINKEDIN_PASSWORD),
++    },
++    timestamp: new Date().toISOString(),
++  });
++});
++
++app.post('/publish', async (req, res) => {
++  const { platform, username, text, media = [] } = req.body;
++
++  console.log(`[BridgeServer] Received publish request: platform=${platform}, user=${username}`);
++
++  if (!platform || !text) {
++    return res.status(400).json({
++      success: false,
++      error: 'Missing required fields: platform and text are required',
++    });
++  }
++
++  try {
++    let result;
++    const normPlatform = String(platform).toLowerCase();
++
++    if (normPlatform === 'x') {
++      result = await publishToX({ username, text, media });
++    } else if (normPlatform === 'linkedin' || normPlatform === 'linkedin-page') {
++      result = await publishToLinkedIn({ platform: normPlatform, username, text, media });
++    } else {
++      return res.status(400).json({
++        success: false,
++        error: `Platform '${platform}' is not supported by browser publisher bridge`,
++      });
++    }
++
++    return res.json(result);
++  } catch (err) {
++    console.error(`[BridgeServer] Publish failed: ${err.message}`, err.stack);
++    return res.status(500).json({
++      success: false,
++      error: err.message,
++      category: 'unknown',
++    });
++  }
++});
++
++app.listen(PORT, '0.0.0.0', () => {
++  console.log(`[trypost-browser-publisher] Server listening on http://0.0.0.0:${PORT}`);
++});

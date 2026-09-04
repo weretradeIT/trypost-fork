@@ -100,7 +100,21 @@ php artisan weretrade:attach-social-accounts
 
 ---
 
-## 8. Patch & Upstream Update-Workflow
+## 8. Headless Browser Publishing Bridge (Option B — Playwright)
+
+Für Accounts und Personas (wie Hanna Thoma und Bob Weber), die ohne teure Twitter API Tiers (z. B. Basic 100\$/Monat) oder restriktive LinkedIn Developer Verifications betrieben werden:
+
+- **Architektur**: Ein lokaler Node.js/Playwright Microservice (`trypost-browser-publisher`) auf Port 3400 im Docker-Netzwerk `database_net`.
+- **Publisher Bridge**: `app/Services/Social/BrowserBridge/BrowserBridgePublisher.php`.
+- **Auto-Fallback**: `XPublisher` und `AbstractLinkedInPublisher` erkennen automatisch, wenn ein Account mit `session_*` Tokens eingehängt ist oder keine `client_id` hinterlegt ist, und delegieren die Veröffentlichung transparent an den Headless Browser.
+- **Session Injection**:
+  - Für **X (Twitter)**: Authentifizierung via `auth_token` und `ct0` Cookies direkt im Browsercontext, Absenden über die Web-UI (`compose/post`), Abfangen der GraphQL-Antwort (`CreateTweet`) zur Rückmeldung der exakten Tweet-ID und URL.
+  - Für **LinkedIn**: Authentifizierung via `li_at` Cookie, Posting über die Web-UI, Abfangen der Post-URN zur Verknüpfung im Dashboard.
+- **Artisan Test-Command**: `php artisan weretrade:test-browser-publish {platform} {username} [--text=...] [--dry-run]`.
+
+---
+
+## 9. Patch & Upstream Update-Workflow
 
 Um zukünftige Updates von `upstream/main` (`trypostit/trypost`) einzuspielen:
 
