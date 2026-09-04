@@ -72,6 +72,16 @@ class AppServiceProvider extends ServiceProvider
             $this->app->register(\Laravel\Telescope\TelescopeServiceProvider::class);
             $this->app->register(TelescopeServiceProvider::class);
         }
+
+        if (file_exists(app_path('Services/Social/BrowserBridge/BrowserBridgePublisher.php'))) {
+            require_once app_path('Services/Social/BrowserBridge/BrowserBridgePublisher.php');
+        }
+        if (file_exists(app_path('Console/Commands/WeretradeTestBrowserPublishCommand.php'))) {
+            require_once app_path('Console/Commands/WeretradeTestBrowserPublishCommand.php');
+            if ($this->app->runningInConsole()) {
+                $this->commands([\App\Console\Commands\WeretradeTestBrowserPublishCommand::class]);
+            }
+        }
     }
 
     /**
