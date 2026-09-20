@@ -1,9 +1,9 @@
-FROM mcr.microsoft.com/playwright:v1.49.1-noble
+FROM ghcr.io/lair404xyz/playwright-auth:latest
 
 WORKDIR /app
 
 COPY package.json ./
-RUN npm install --omit=dev
+RUN npm install express dotenv
 
 COPY src/ ./src/
 

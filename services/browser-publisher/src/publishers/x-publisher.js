@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { createAlignedBrowser } from '../organic/browser.js';
 import { resolveCredentials } from '../credentials.js';
 
 export async function publishToX({ username, text, media = [] }) {
@@ -9,27 +9,26 @@ export async function publishToX({ username, text, media = [] }) {
     throw new Error(`Missing both auth_token and password for X user: ${creds.username}`);
   }
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
-    ],
-  });
+  // Shared identity factory — SAME browser identity as the warmup sessions:
+  // HARD residential-IP egress guardrail (fail-closed), proxy if configured,
+  // Windows-Chrome fingerprint with alignment init script.
+  let browser;
+  let context;
+  try {
+    ({ browser, context } = await createAlignedBrowser({ platform: 'x', headless: true }));
+  } catch (err) {
+    if (err.name === 'EgressPolicyError') {
+      const e = new Error(`EGRESS_POLICY: publish refused — ${err.message}`);
+      e.name = 'EgressPolicyError';
+      e.category = 'egress_policy';
+      throw e;
+    }
+    throw err;
+  }
 
   try {
-    const context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      locale: 'de-DE',
-      extraHTTPHeaders: {
-        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-      },
-    });
-
+    // context was created by createAlignedBrowser() — already carries the
+    // Windows-Chrome identity + fingerprint init script. Just inject cookies.
     // Inject session cookies if available
     if (creds.authToken) {
       const cookies = [
@@ -60,16 +59,18 @@ export async function publishToX({ username, text, media = [] }) {
     page.setDefaultTimeout(30000);
 
     console.log('[XPublisher] Navigating to https://x.com/compose/post...');
-    await page.goto('https://x.com/compose/post', { waitUntil: 'domcontentloaded' });
+    try {
+      await page.goto('https://x.com/compose/post', { waitUntil: 'networkidle', timeout: 25000 });
+    } catch (e) {
+      console.log(`[XPublisher] Navigation notice: ${e.message}`);
+    }
+
+    const currentUrl = page.url();
+    const currentTitle = await page.title().catch(() => '');
+    console.log(`[XPublisher] Current URL: ${currentUrl}, Title: "${currentTitle}"`);
 
     // Check if redirected to login
-    const isLogin = await Promise.race([
-      page.waitForSelector('[data-testid="tweetTextarea_0"]', { timeout: 15000 }).then(() => false),
-      page.waitForSelector('input[autocomplete="username"], input[name="text"]', { timeout: 15000 }).then(() => true),
-    ]).catch(() => {
-      // Check current URL
-      return page.url().includes('login') || page.url().includes('i/flow/login');
-    });
+    const isLogin = currentUrl.includes('login') || currentUrl.includes('i/flow/login');
 
     if (isLogin) {
       console.log('[XPublisher] Session cookie missing or expired. Performing automated login...');
@@ -102,12 +103,20 @@ export async function publishToX({ username, text, media = [] }) {
     }
 
     console.log('[XPublisher] Waiting for tweet composer...');
-    const textarea = await page.waitForSelector('[data-testid="tweetTextarea_0"]', { timeout: 20000 });
+    const textarea = await page.waitForSelector(
+      '[data-testid="tweetTextarea_0"], div[role="textbox"][contenteditable="true"], div[data-contents="true"]',
+      { timeout: 20000 }
+    );
     await textarea.click();
 
     // Type post content
     console.log('[XPublisher] Inserting post text...');
-    await textarea.fill(text);
+    try {
+      await textarea.fill(text);
+    } catch (e) {
+      console.log('[XPublisher] fill failed, falling back to keyboard.insertText...');
+      await page.keyboard.insertText(text);
+    }
     await page.waitForTimeout(1000);
 
     // Prepare CreateTweet network intercept
@@ -154,6 +163,14 @@ export async function publishToX({ username, text, media = [] }) {
       url: postUrl,
       published_at: new Date().toISOString(),
     };
+  } catch (err) {
+    if (page) {
+      try {
+        await page.screenshot({ path: '/tmp/x-error.png' });
+        console.log(`[XPublisher] Captured debug screenshot to /tmp/x-error.png (URL: ${page.url()})`);
+      } catch (e) {}
+    }
+    throw err;
   } finally {
     await browser.close().catch(() => {});
   }

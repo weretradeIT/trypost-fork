@@ -56,7 +56,7 @@ class BrowserBridgePublisher
         try {
             $request = Http::timeout($timeout);
             if (! empty($bridgeSecret)) {
-                $request->withToken($bridgeSecret);
+                $request = $request->withToken($bridgeSecret);
             }
 
             $response = $request->post("{$bridgeUrl}/publish", $payload);

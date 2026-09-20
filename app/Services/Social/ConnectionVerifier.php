@@ -52,6 +52,10 @@ class ConnectionVerifier
      */
     public function verify(SocialAccount $account): bool
     {
+        if (config('trypost.browser_bridge.enabled') && in_array($account->platform, [Platform::X, Platform::LinkedIn, Platform::LinkedInPage], true)) {
+            return true;
+        }
+
         // Hard-expired tokens cannot make API calls — refresh is mandatory.
         // For tokens that are still valid OR only "expiring soon", try the
         // verify endpoint FIRST with the current access_token. This avoids
@@ -201,6 +205,10 @@ class ConnectionVerifier
      */
     public function refreshToken(SocialAccount $account): bool
     {
+        if (config('trypost.browser_bridge.enabled') && in_array($account->platform, [Platform::X, Platform::LinkedIn, Platform::LinkedInPage], true)) {
+            return true;
+        }
+
         $lock = Cache::lock("token_refresh:{$account->id}", self::REFRESH_LOCK_SECONDS);
 
         if (! $lock->get()) {

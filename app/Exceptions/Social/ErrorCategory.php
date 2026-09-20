@@ -16,6 +16,7 @@ enum ErrorCategory: string
     case Timeout = 'timeout';
     case TokenExpired = 'token_expired';
     case JobFailed = 'job_failed';
+    case EgressPolicy = 'egress_policy';
 
     public function isResumable(): bool
     {

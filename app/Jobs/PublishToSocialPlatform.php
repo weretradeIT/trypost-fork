@@ -96,23 +96,27 @@ class PublishToSocialPlatform implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        if ($this->postPlatform->socialAccount->status === Status::Disconnected) {
-            $this->failAndFinalize(__('posts.errors.account_disconnected'));
+        $isBridgeHandled = config('trypost.browser_bridge.enabled') && in_array($this->postPlatform->platform, [SocialPlatform::X, SocialPlatform::LinkedIn, SocialPlatform::LinkedInPage], true);
 
-            return;
-        }
+        if (! $isBridgeHandled) {
+            if ($this->postPlatform->socialAccount->status === Status::Disconnected) {
+                $this->failAndFinalize(__('posts.errors.account_disconnected'));
 
-        if ($this->postPlatform->socialAccount->status === Status::TokenExpired) {
-            $this->failAndFinalize(__('posts.errors.account_token_expired'), [
-                'category' => ErrorCategory::TokenExpired->value,
-                'failed_at' => now()->toIso8601String(),
-            ]);
+                return;
+            }
 
-            return;
-        }
+            if ($this->postPlatform->socialAccount->status === Status::TokenExpired) {
+                $this->failAndFinalize(__('posts.errors.account_token_expired'), [
+                    'category' => ErrorCategory::TokenExpired->value,
+                    'failed_at' => now()->toIso8601String(),
+                ]);
 
-        if ($this->failForMissingScopes()) {
-            return;
+                return;
+            }
+
+            if ($this->failForMissingScopes()) {
+                return;
+            }
         }
 
         $this->postPlatform->markAsPublishing();

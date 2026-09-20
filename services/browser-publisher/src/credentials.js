@@ -13,7 +13,7 @@ export function resolveCredentials(platform, username = '') {
         platform: 'x',
         username: 'weretradeHanna',
         authToken: process.env.X_HANNA_AUTH_TOKEN || process.env.X_AUTH_TOKEN || '',
-        ct0: process.env.X_HANNA_CT0 || process.env.X_CT0 || '',
+        ct0: process.env.X_HANNA_CT0 || process.env.X_HANNA_CT || process.env.X_CT0 || '',
         email: process.env.X_HANNA_EMAIL || 'hanna.t0710@gmail.com',
         password: process.env.X_HANNA_PASSWORD || '',
       };
@@ -23,7 +23,9 @@ export function resolveCredentials(platform, username = '') {
     if (normUser.includes('bob')) {
       return {
         platform: 'x',
-        username: 'bob_w1408',
+        // Login-Flow uses this as the first (handle) field; env wins over the
+        // known handle so rotation only requires a .env change.
+        username: process.env.X_BOB_USERNAME || 'bob_w1408',
         authToken: process.env.X_BOB_AUTH_TOKEN || '',
         ct0: process.env.X_BOB_CT0 || '',
         email: process.env.X_BOB_EMAIL || 'bob.weber1408@gmail.com',

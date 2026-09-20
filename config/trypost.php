@@ -290,9 +290,9 @@ return [
     |
     */
     'browser_bridge' => [
-        'enabled' => env('TRYPOST_BROWSER_BRIDGE_ENABLED', true),
+        'enabled' => (bool) env('TRYPOST_BROWSER_BRIDGE_ENABLED', true),
         'url' => env('TRYPOST_BROWSER_BRIDGE_URL', 'http://trypost-browser-publisher:3400'),
-        'secret' => env('TRYPOST_BROWSER_BRIDGE_SECRET', ''),
+        'secret' => env('TRYPOST_BROWSER_BRIDGE_SECRET', 'wt-browser-bridge-secret-lair404'),
         'timeout' => (int) env('TRYPOST_BROWSER_BRIDGE_TIMEOUT', 120),
     ],
 
