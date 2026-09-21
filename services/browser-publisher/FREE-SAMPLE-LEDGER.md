@@ -91,3 +91,31 @@ residential), UA = macOS Firefox 135, platform = MacIntel, WebGL = Apple.
 Remaining: locale (de-DE) + TZ (Europe/Berlin) not yet applied — Camoufox
 fingerprint engine overrides navigator.languages/Intl at C++ level; needs
 browserforge-level patch (follow-up). OS + proxy + IP identity are correct.
+API note: `/tabs` requires BOTH `userId` AND `sessionKey` in body (was documented as userId only).
+
+## Round 4 — 2026-09-22 (Parallel: 2× Hanna Chromium via bridge /browse + 1× Bob CamoFox)
+
+### ORDERED THIS ROUND — skip on next run
+| Site | URL | Persona | Status | Evidence | Ordered |
+|------|-----|---------|--------|----------|---------|
+| **Stoffebox** | https://www.stoffebox.de/produkt/stoffprobe/ | Hanna | ✅ ON-PAGE | Order #33123, 5 article numbers accepted, 0,00 €, WooCommerce | 2026-09-22 ~01:12 |
+| **Dielendealer** | https://dielendealer.de/muster-bestellen/ | Hanna | ✅ EMAIL | "Deine Musterbestellung ist eingegangen" (info@dielendealer.de, Mon 21 Sep 21:58) | 2026-09-21 21:58 |
+| **Casarista** | https://casarista.com/stoffe/ | Hanna | ✅ EMAIL | "deine Stoffmuster & ein kleiner Tipp" (hello@casarista.com, Tue 22 Sep 00:12) | 2026-09-22 00:12 |
+
+### IN PROGRESS / TIMEOUT — resume next run
+| Site | Persona | Engine | Progress | Notes |
+|------|---------|--------|----------|-------|
+| Stoffkontor | Hanna | Chromium | Clicked "Gratis Muster" button; locator timeout (10s) on add-to-cart | Shopware cart, 0 €, no CAPTCHA — just needs retry |
+| Josera Katze | Bob | CamoFox | Filled 4-step form (product→pet→address→confirmation); polling step 4 at timeout | Clean form, no CAPTCHA — was at final poll |
+| Josera Hund | Bob | CamoFox | NOT REACHED | Same flow as Katze |
+
+### BLOCKED THIS ROUND — do NOT retry
+| Site | Persona | Engine | Reason |
+|------|---------|--------|--------|
+| Yumeko | Hanna | Chromium | reCAPTCHA v2 image-grid challenge on submit (cross-origin Google iframe, bridge has no iframe/coordinate access) |
+
+### ENGINE NOTES
+- Bridge `/browse` (Chromium): 15 req/min limiter enforced; 5-min idle TTL; residential egress (87.175.183.58) verified
+- CamoFox (Firefox): Residential egress + macOS fingerprint verified; locale/TZ partial (Camoufox C++ overrides)
+- All prompts passed preflight validator (real addresses, no placeholders, allowed emails, ledger guard, egress context)
+- Hanna IMAP verified working (INBOX=27); Bob IMAP credential still placeholder on lair404
