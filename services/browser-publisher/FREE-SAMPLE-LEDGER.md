@@ -127,14 +127,15 @@ Tab stability issue on Svelte 5 forms (Josera) — tabs die after ~30s idle on c
 | Site | URL | Persona | Engine | Status | Evidence | Ordered |
 |------|-----|---------|--------|--------|----------|---------|
 | **Stoffkontor** | https://www.stoffkontor.de/ | Hanna | Chromium | ✅ FULL (on-page + email) | Order #2205, "Bestellung #2205 bestätigt" email 2026-09-22 10:48:28 | 2026-09-22 10:48 |
-| **Josera Katze** | https://www.josera-katzenfutter-probe.de/ | Bob | CamoFox | ✅ ON-PAGE | Order #48264 (confirmed on thank-you page) | 2026-09-22 ~13:15 |
+| **Josera Katze** | https://www.josera-katzenfutter-probe.de/ | Bob | CamoFox | ✅ FULL (on-page + email) | Order #48264 on-page + email 2026-09-22 11:14:34 from noreply@josera.com | 2026-09-22 ~13:15 |
+| **Josera Hund** | https://www.josera-hundefutter-probe.de/ | Bob | CamoFox | ✅ FULL (on-page + email) | Email 2026-09-22 14:13:27 from noreply@josera.com "Bestellbestätigung Deiner gratis Hundefutterprobe" | 2026-09-22 ~14:13 |
 | **Gotain** | https://www.gotain.de/ | Hanna | Chromium | ❌ DEAD | DNS NXDOMAIN — domain does not exist | — |
 | **Wohntextilien** | https://www.wohntextilien.de/ | Hanna | Chromium | ⚠️ PARTIAL | Cart reached, "In den Warenkorb" click timeout (10s), no email | — |
 
 ### IN PROGRESS / TIMEOUT — resume next run
 | Site | Persona | Engine | Progress | Notes |
 |------|---------|--------|----------|-------|
-| Josera Hund | Bob | CamoFox | Tab stability issues (Svelte 5 form, tabs die ~30s) | Same 4-step flow; needs robust script with polling |
+| (none — all Round 5 targets resolved) | | | | |
 
 ### BLOCKED THIS ROUND — do NOT retry
 | Site | Persona | Engine | Reason |
@@ -145,4 +146,4 @@ Tab stability issue on Svelte 5 forms (Josera) — tabs die after ~30s idle on c
 ### ENGINE NOTES
 - Bridge `/browse` (Chromium): 15 req/min limiter; 5-min idle TTL; residential egress verified
 - CamoFox (Firefox): Residential egress + macOS fingerprint; **tab stability issue on Svelte 5 islands** — tabs die on complex pages after ~30s; needs keep-alive or shorter flows
-- Hanna IMAP working; **Bob IMAP still broken** (placeholder credential) — cannot verify email confirmations
+- **Both IMAP working**: Hanna (INBOX=27), Bob (INBOX=36) — email confirmations now verifiable for both personas
