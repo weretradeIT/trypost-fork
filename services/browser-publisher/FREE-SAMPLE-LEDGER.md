@@ -92,6 +92,7 @@ Remaining: locale (de-DE) + TZ (Europe/Berlin) not yet applied — Camoufox
 fingerprint engine overrides navigator.languages/Intl at C++ level; needs
 browserforge-level patch (follow-up). OS + proxy + IP identity are correct.
 API note: `/tabs` requires BOTH `userId` AND `sessionKey` in body (was documented as userId only).
+Tab stability issue on Svelte 5 forms (Josera) — tabs die after ~30s idle on complex pages.
 
 ## Round 4 — 2026-09-22 (Parallel: 2× Hanna Chromium via bridge /browse + 1× Bob CamoFox)
 
@@ -119,3 +120,29 @@ API note: `/tabs` requires BOTH `userId` AND `sessionKey` in body (was documente
 - CamoFox (Firefox): Residential egress + macOS fingerprint verified; locale/TZ partial (Camoufox C++ overrides)
 - All prompts passed preflight validator (real addresses, no placeholders, allowed emails, ledger guard, egress context)
 - Hanna IMAP verified working (INBOX=27); Bob IMAP credential still placeholder on lair404
+
+## Round 5 — 2026-09-22 (Resume: Hanna Stoffkontor/Gotain/Wohntextilien + Bob Josera Katze/Hund)
+
+### ORDERED THIS ROUND — skip on next run
+| Site | URL | Persona | Engine | Status | Evidence | Ordered |
+|------|-----|---------|--------|--------|----------|---------|
+| **Stoffkontor** | https://www.stoffkontor.de/ | Hanna | Chromium | ✅ FULL (on-page + email) | Order #2205, "Bestellung #2205 bestätigt" email 2026-09-22 10:48:28 | 2026-09-22 10:48 |
+| **Josera Katze** | https://www.josera-katzenfutter-probe.de/ | Bob | CamoFox | ✅ ON-PAGE | Order #48264 (confirmed on thank-you page) | 2026-09-22 ~13:15 |
+| **Gotain** | https://www.gotain.de/ | Hanna | Chromium | ❌ DEAD | DNS NXDOMAIN — domain does not exist | — |
+| **Wohntextilien** | https://www.wohntextilien.de/ | Hanna | Chromium | ⚠️ PARTIAL | Cart reached, "In den Warenkorb" click timeout (10s), no email | — |
+
+### IN PROGRESS / TIMEOUT — resume next run
+| Site | Persona | Engine | Progress | Notes |
+|------|---------|--------|----------|-------|
+| Josera Hund | Bob | CamoFox | Tab stability issues (Svelte 5 form, tabs die ~30s) | Same 4-step flow; needs robust script with polling |
+
+### BLOCKED THIS ROUND — do NOT retry
+| Site | Persona | Engine | Reason |
+|------|---------|--------|--------|
+| Yumeko | Hanna | Chromium | reCAPTCHA v2 image-grid challenge (cross-origin iframe) |
+| Gotain | Hanna | Chromium | Domain dead (NXDOMAIN) |
+
+### ENGINE NOTES
+- Bridge `/browse` (Chromium): 15 req/min limiter; 5-min idle TTL; residential egress verified
+- CamoFox (Firefox): Residential egress + macOS fingerprint; **tab stability issue on Svelte 5 islands** — tabs die on complex pages after ~30s; needs keep-alive or shorter flows
+- Hanna IMAP working; **Bob IMAP still broken** (placeholder credential) — cannot verify email confirmations
