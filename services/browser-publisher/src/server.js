@@ -7,8 +7,39 @@ import { ORGANIC_CONFIG } from './organic/config.js';
 import { activeEngine } from './organic/engine.js';
 import { assertOrganicBeforePublish, guardForAccount } from './organic/guardrail.js';
 import { initScheduler, warmStatus, warmupNow, activeWarmupKeys } from './organic/scheduler.js';
-import { publishLimiter, warmupLimiter, statusLimiter } from './organic/rate-limiter.js';
+import { publishLimiter, warmupLimiter, statusLimiter, browseLimiter } from './organic/rate-limiter.js';
 import { lastEgressVerdict } from './organic/egress.js';
+import {
+  browseSession, browseNavigate, browseSnapshot, browseClick, browseType,
+  browseEvaluate, browseScreenshot, browseScroll, browseClose, browseSessions,
+  browseWaitForSelector,
+} from './browse.js';
+import { buildMeasurements, checkLiveActionIntegrity } from './organic/integrity.js';
+import { clientHintsFor, userAgentFor, LAUNCH_ARGS } from './organic/browser.js';
+import { fingerprintInitScript } from './organic/fingerprint.js';
+import { managedPersonaSet } from './organic/config.js';
+
+/**
+ * Build a live snapshot of the CURRENT measurement stack + the integrity
+ * verdict, for the health/status endpoints. Pure + cheap (no browser launch).
+ * `platform` defaults to 'x' (the more conservative Windows identity).
+ */
+function currentIntegritySnapshot(platform = 'x') {
+  try {
+    const measurements = buildMeasurements({
+      platform,
+      egressVerdict: lastEgressVerdict(),
+      browserProxy: ORGANIC_CONFIG.browserProxy || '',
+      clientHints: clientHintsFor(platform),
+      userAgent: userAgentFor(platform),
+      fingerprintScript: fingerprintInitScript(userAgentFor(platform), platform),
+      launchArgs: LAUNCH_ARGS,
+    });
+    return { enabled: ORGANIC_CONFIG.liveActionIntegrityEnabled, ...checkLiveActionIntegrity(measurements), measurements };
+  } catch (err) {
+    return { enabled: ORGANIC_CONFIG.liveActionIntegrityEnabled, ok: false, blockers: [`integrity check failed: ${err.message}`], warnings: [], measurements: null };
+  }
+}
 
 dotenv.config();
 
@@ -95,6 +126,11 @@ app.get('/health', (req, res) => {
           egress_ok: lastEgressVerdict()?.ok ?? null,
           engine: activeEngine(),
           managed_accounts: warmStatus().accounts ? Object.keys(warmStatus().accounts).length : 0,
+          // The live-action integrity gate + the CURRENT measurement stack.
+          // integrity.ok=false means a live action would be REFUSED right now
+          // (fail-closed) — this is the "are all measurements active?" signal.
+          integrity: currentIntegritySnapshot('x'),
+          managed_personas: managedPersonaSet(),
         }
       : { enabled: false },
     timestamp: new Date().toISOString(),
@@ -106,7 +142,7 @@ app.get('/organic-status', rateLimit(statusLimiter, 'burst'), (req, res) => {
   if (platform && username) {
     return res.json({ success: true, guard: guardForAccount(platform, String(username)) });
   }
-  return res.json({ success: true, egress: lastEgressVerdict(), ...warmStatus() });
+  return res.json({ success: true, egress: lastEgressVerdict(), integrity: currentIntegritySnapshot('x'), ...warmStatus() });
 });
 
 app.post('/warmup', rateLimit(warmupLimiter, 'burst'), async (req, res) => {
@@ -188,6 +224,34 @@ app.post('/publish', rateLimit(publishLimiter, 'burst'), async (req, res) => {
     });
   }
 });
+
+// --- Generic browse (shared aligned Chromium, residential egress) -----------
+// Stateful session API for form-filling workflows (e.g. free-sample orders).
+// Same BRIDGE_SECRET auth + egress guardrail as /publish. Rate-limited.
+// Each handler wraps its own try/catch so a browse error returns clean JSON
+// instead of hitting the global error middleware.
+const browseHandler = (fn) => (req, res) => {
+  Promise.resolve(fn(req.body || {})).then(
+    (out) => res.json({ success: true, ...out }),
+    (err) => {
+      const status = err.status || 500;
+      console.error(`[BridgeServer] browse error: ${err.message}`);
+      res.status(status).json({ success: false, error: err.message });
+    }
+  );
+};
+
+app.post('/browse/session', rateLimit(browseLimiter, 'burst'), browseHandler(browseSession));
+app.post('/browse/navigate', rateLimit(browseLimiter, 'burst'), browseHandler(browseNavigate));
+app.post('/browse/snapshot', rateLimit(browseLimiter, 'burst'), browseHandler(browseSnapshot));
+app.post('/browse/click', rateLimit(browseLimiter, 'burst'), browseHandler(browseClick));
+app.post('/browse/type', rateLimit(browseLimiter, 'burst'), browseHandler(browseType));
+app.post('/browse/evaluate', rateLimit(browseLimiter, 'burst'), browseHandler(browseEvaluate));
+app.post('/browse/screenshot', rateLimit(browseLimiter, 'burst'), browseHandler(browseScreenshot));
+app.post('/browse/scroll', rateLimit(browseLimiter, 'burst'), browseHandler(browseScroll));
+app.post('/browse/wait_for_selector', rateLimit(browseLimiter, 'burst'), browseHandler(browseWaitForSelector));
+app.post('/browse/close', rateLimit(browseLimiter, 'burst'), browseHandler(browseClose));
+app.get('/browse/sessions', (req, res) => res.json({ success: true, ...browseSessions() }));
 
 // Unknown paths: never echo the route (avoid information disclosure).
 app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));
