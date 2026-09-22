@@ -10,6 +10,8 @@
  *      ordered sites (reads FREE-SAMPLE-LEDGER.md).
  *   3. Egress check — the prompt MUST mention residential egress / proxy if
  *      the task involves browser interaction.
+ *   4. DNS pre-check — every domain in the prompt must resolve (NXDOMAIN
+ *      = hard fail). Dead domains waste 30+ min of subagent runtime.
  *
  * Usage:
  *   node validate-prompt.mjs <persona> <prompt-file-or-->
@@ -20,7 +22,41 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { PERSONAS } from './persona-address.mjs';
+
+// Wave D: DNS resolution — dig (macOS + Linux) with nslookup fallback.
+// Returns 'ok', 'NXDOMAIN', or 'error'.
+function dnsResolve(hostname) {
+  for (const [cmd, args] of [
+    ['dig', [hostname, '+short', '+time=4', '+tries=2']],
+    ['nslookup', [hostname]],
+  ]) {
+    try {
+      const out = execFileSync(cmd, args, { encoding: 'utf8', timeout: 12000 }).trim();
+      if (!out) return 'NXDOMAIN'; // dig +short → empty on NXDOMAIN
+      const hasIp = out.split(/\s+/).some((l) => /^\d+\.\d+\.\d+\.\d+$/.test(l) || /^[0-9a-f]{2,4}:/.test(l));
+      if (hasIp) return 'ok';
+      if (/no answer|NXDOMAIN|server can't find|name server unknown/i.test(out)) return 'NXDOMAIN';
+    } catch {
+      continue;
+    }
+  }
+  return 'error';
+}
+
+// Extract all hostnames referenced in the prompt (http(s) URLs + bare .de/.com etc).
+function extractDomains(prompt) {
+  const domains = new Set();
+  for (const m of prompt.matchAll(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)) {
+    domains.add(m[1].toLowerCase());
+  }
+  for (const m of prompt.matchAll(/\b([a-z0-9-]+\.(?:de|com|net|org|eu|shop|store|io))(?=[\s/)\]|,;]|$)/gi)) {
+    domains.add(m[1].toLowerCase());
+  }
+  // Drop subdomains? No — check the full hostname as written (www vs apex can differ).
+  return [...domains];
+}
 
 const FORBIDDEN_GLOBAL = [
   'musterstraße',
@@ -127,6 +163,22 @@ function main() {
         `but does not mention residential egress or proxy — ` +
         `the subagent may route through the datacenter IP.`
       );
+    }
+  }
+  
+  // --- Gate 4: DNS pre-check (Wave D) ---
+  // Dead domains (NXDOMAIN) fail INSIDE the subagent run, wasting 30+ minutes.
+  // Catch them here at preflight. Example: gotain.de = NXDOMAIN (Round 5).
+  const domains = extractDomains(prompt);
+  for (const d of domains) {
+    const status = dnsResolve(d);
+    if (status === 'NXDOMAIN') {
+      violations.push(
+        `DEAD DOMAIN: "${d}" does not resolve (NXDOMAIN) — ` +
+        `remove it from the target list before dispatching the subagent.`
+      );
+    } else if (status === 'error') {
+      console.error(`⚠ DNS check inconclusive for ${d} (resolver error) — not blocking`);
     }
   }
   
