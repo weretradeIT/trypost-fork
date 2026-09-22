@@ -100,9 +100,59 @@ export const ORGANIC_CONFIG = {
   // How many scroll steps the CamoFox verified-scroll warmup performs.
   camofoxScrollSteps: num('ORGANIC_CAMOFOX_SCROLL_STEPS', 5),
 
+  // --- Live-action integrity gate ------------------------------------------
+  // BEFORE any live action (warmup OR publish) opens a browser session, a
+  // per-session measurement integrity check runs: it verifies the active
+  // measurement stack (residential-IP egress, aligned client-hints, in-page
+  // fingerprint patch, WebRTC lockdown) is actually ACTIVE and correctly
+  // configured, and refuses the session if a measurement is missing. This is
+  // the "100% sure every measurement is on before we touch a live account"
+  // guard — it lives in the ONE choke point every session flows through
+  // (createAlignedBrowser), so it covers hanna/bob AND any future persona
+  // with zero per-platform call-site changes.
+  //   liveActionIntegrityEnabled   — master switch (fail-closed when true).
+  //   liveActionRequireResidential — a live action needs a RESIDENTIAL egress
+  //                                   (datacenter IP alone is never enough).
+  //   liveActionRequireAlignedHints— a live action needs the aligned
+  //                                   sec-ch-ua (no HeadlessChrome brand).
+  //   liveActionRequireFingerprint — a live action needs the in-page
+  //                                   fingerprint patch to be injected.
+  //   liveActionRequireWebrtc      — a live action needs WebRTC locked to the
+  //                                   proxy (no host-IP leak).
+  liveActionIntegrityEnabled: bool('ORGANIC_LIVE_ACTION_INTEGRITY_ENABLED', true),
+  liveActionRequireResidential: bool('ORGANIC_LIVE_ACTION_REQUIRE_RESIDENTIAL', true),
+  liveActionRequireAlignedHints: bool('ORGANIC_LIVE_ACTION_REQUIRE_ALIGNED_HINTS', true),
+  liveActionRequireFingerprint: bool('ORGANIC_LIVE_ACTION_REQUIRE_FINGERPRINT', true),
+  liveActionRequireWebrtc: bool('ORGANIC_LIVE_ACTION_REQUIRE_WEBRTC', true),
+
+  // --- Managed personas (generalization beyond hanna/bob) ------------------
+  // The organic engine is persona-generic. PERSONA_PATTERNS in accounts.js
+  // maps username→persona; this CSV is the ADDITIONAL set of persona slugs
+  // that should be actively managed (scheduled warmups + guardrail) on top of
+  // the built-in hanna/bob. To add a new synthetic persona for future
+  // automated web actions: (1) add its username→persona needle to
+  // accounts.js PERSONA_PATTERNS, (2) add its credentials env (e.g.
+  // LINKEDIN_<PERSONA>_EMAIL / X_AUTH_TOKEN_<PERSONA>), (3) list its slug
+  // here (or in ORGANIC_GUARDRAIL_PERSONAS). The scheduler will pick it up
+  // through the MANAGED_PERSONAS export.
+  managedPersonas: csv('ORGANIC_MANAGED_PERSONAS', ['hanna', 'bob']),
+
   // --- Storage ----------------------------------------------------------
   ledgerPath: process.env.ORGANIC_LEDGER_PATH || '/app/cookies/organic-ledger.json',
 };
+
+/**
+ * The set of personas the engine should actively manage (schedule warmups +
+ * enforce the publish guardrail). Derived from the env CSV; always includes
+ * the built-in synthetic personas so existing behaviour is preserved. This is
+ * the single source the scheduler's MANAGED_ACCOUNTS consults, so adding a
+ * persona is a config change, not a code change.
+ */
+export function managedPersonaSet() {
+  const builtIn = ['hanna', 'bob'];
+  const extra = ORGANIC_CONFIG.managedPersonas.filter((p) => !builtIn.includes(p));
+  return [...builtIn, ...extra];
+}
 
 /** Warmup is allowed right now (respects quiet hours in local tz). */
 export function isWithinQuietHours(now = new Date()) {

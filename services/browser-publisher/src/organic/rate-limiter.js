@@ -98,3 +98,15 @@ export const statusLimiter = new RateLimiter({
   hourlyLimit: Number(process.env.RATE_LIMIT_STATUS_HOURLY || 100),
   hourlyWindowMs: 3_600_000,
 });
+
+// /browse/* — each action is a single HTTP call into a shared browser session.
+// Cheaper than /publish (no login, no guardrail) but still opens/holds a
+// Chromium context, so keep it moderate. snapshot/screenshot/evaluate are the
+// bulk of a form-fill workflow; allow a generous burst so a 20-step fill
+// doesn't 429 mid-form.
+export const browseLimiter = new RateLimiter({
+  burstLimit: Number(process.env.RATE_LIMIT_BROWSE_BURST || 40),
+  burstWindowMs: 60_000,
+  hourlyLimit: Number(process.env.RATE_LIMIT_BROWSE_HOURLY || 400),
+  hourlyWindowMs: 3_600_000,
+});

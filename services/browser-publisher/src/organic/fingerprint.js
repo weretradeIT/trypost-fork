@@ -234,9 +234,15 @@ export function fingerprintInitScript(userAgent, platform = 'linkedin') {
       // at least recorded for the window resize event path.
     }
     // Keep screen dimensions consistent with the viewport + frame.
+    // CRITICAL: capture the original screen dims BEFORE patching, otherwise
+    // the getter references window.screen.width which IS the getter we are
+    // about to install → infinite recursion (RangeError: Maximum call stack
+    // size exceeded) on any page that reads screen.width.
     try {
-      Object.defineProperty(screen, 'width', { get: () => Math.max(window.screen.width, _oW), configurable: true });
-      Object.defineProperty(screen, 'height', { get: () => Math.max(window.screen.height, _oH), configurable: true });
+      const _sw = screen.width;
+      const _sh = screen.height;
+      Object.defineProperty(screen, 'width', { get: () => Math.max(_sw, _oW), configurable: true });
+      Object.defineProperty(screen, 'height', { get: () => Math.max(_sh, _oH), configurable: true });
     } catch {}
   } catch {}
 

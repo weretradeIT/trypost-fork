@@ -31,8 +31,9 @@
 
 import { chromium } from 'playwright';
 import { ORGANIC_CONFIG } from './config.js';
-import { assertEgressAllowed } from './egress.js';
+import { assertEgressAllowed, lastEgressVerdict } from './egress.js';
 import { fingerprintInitScript } from './fingerprint.js';
+import { assertLiveActionIntegrity, LiveActionIntegrityError } from './integrity.js';
 
 const CHROME_MAJOR = process.env.ORGANIC_CHROME_MAJOR || '151';
 
@@ -135,7 +136,33 @@ export async function createAlignedBrowser({ platform = 'x', headless = true } =
 
   // Align the in-page fingerprint (navigator, plugins, WebGL, frame geometry,
   // userAgentData, connection) BEFORE any platform JS loads.
-  await context.addInitScript(fingerprintInitScript(ua, platform));
+  const fpScript = fingerprintInitScript(ua, platform);
+  await context.addInitScript(fpScript);
+
+  // LIVE-ACTION INTEGRITY GATE — fail-closed. Every browser session (warmup OR
+  // publish, for ANY persona) flows through here, so this single check is the
+  // "100% sure every measurement is active before we touch a live account"
+  // guard. It verifies the residential egress, aligned client-hints, the
+  // in-page fingerprint patch, and WebRTC lockdown are all actually on for
+  // THIS session. On failure it throws LiveActionIntegrityError — and because
+  // we launch-then-check, we close the half-opened browser first so no
+  // unhardened process lingers.
+  let measurements;
+  try {
+    measurements = assertLiveActionIntegrity({
+      platform: key,
+      egressVerdict: lastEgressVerdict(),
+      browserProxy: ORGANIC_CONFIG.browserProxy || '',
+      clientHints: clientHintsFor(platform),
+      userAgent: ua,
+      fingerprintScript: fpScript,
+      launchArgs: LAUNCH_ARGS,
+    });
+  } catch (err) {
+    await browser.close().catch(() => {});
+    if (err instanceof LiveActionIntegrityError) throw err;
+    throw err;
+  }
 
   // Accept-Language: Blink derives the header from the `locale` context option
   // and OVERWRITES our extraHTTPHeaders value (so the full German fallback chain
@@ -153,5 +180,5 @@ export async function createAlignedBrowser({ platform = 'x', headless = true } =
     await browser.close().catch(() => {});
   };
 
-  return { browser, context, platform: key, userAgent: ua, close };
+  return { browser, context, platform: key, userAgent: ua, measurements, close };
 }
