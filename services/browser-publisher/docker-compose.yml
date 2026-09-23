@@ -1,0 +1,166 @@
+# trypost browser-publisher — headless social publishing bridge (X + LinkedIn)
+#
+# Two services:
+#   - app               trypost Laravel app (the "Social Hub" UI/API)
+#   - browser-publisher the organic anti-detect publishing bridge (this file's
+#                       reason to exist — see README.md for the full setup)
+#
+# Host deployment path:  /opt/weretrade/lair404-core/services/trypost-browser-publisher/
+#   - docker-compose.yml  (this file — synced verbatim)
+#   - .env                (secrets — injected from Vault, NEVER committed;
+#                          see .env.example for the key contract)
+#   - publisher/src       (bind-mounted LIVE source, from trypost-fork
+#                          services/browser-publisher/src — see README)
+#   - publisher/cookies   (bind-mounted, persona cookie jars + organic ledger)
+#   - publisher/fonts     (bind-mounted, real macOS faces — see fonts/)
+#
+# The bridge source of truth is the trypost-fork app repo
+# (services/browser-publisher/), NOT this infra dir. This dir holds only the
+# DEPLOYMENT: compose + env contract + fonts + docs. The bridge src is
+# bind-mounted from the host so a source edit is live on container restart
+# (no image rebuild).
+#
+# Ports are bound to 127.0.0.1 only (the Caddy mesh gateway fronts
+# social.lair404.xyz; the bridge is reached intra-network by the app).
+
+services:
+  app:
+    image: ghcr.io/weretradeit/trypost-fork:latest
+    container_name: trypost-app
+    env_file: .env
+    restart: unless-stopped
+    environment:
+      APP_NAME: "weretradeIT Social Hub"
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: "${TRYPOST_APP_KEY}"
+      APP_URL: "${TRYPOST_APP_URL:-https://social.lair404.xyz}"
+      SELF_HOSTED: "true"
+      ALLOW_MULTIPLE_SOCIAL_ACCOUNTS: "true"
+      TRYPOST_TARGET: production
+
+      # Database (shared postgres-primary in database_net)
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres-primary
+      DB_PORT: "5432"
+      DB_DATABASE: trypost
+      DB_USERNAME: trypost
+      DB_PASSWORD: "${TRYPOST_DB_PASSWORD}"
+
+      # Redis / Queues / Cache (shared redis-primary in database_net)
+      REDIS_HOST: redis-primary
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "${TRYPOST_REDIS_PASSWORD}"
+      REDIS_DB: "3"
+      REDIS_CACHE_DB: "3"
+      REDIS_PREFIX: "trypost_"
+      QUEUE_CONNECTION: redis
+      CACHE_STORE: redis
+      SESSION_DRIVER: database
+      BROADCAST_CONNECTION: reverb
+
+      # Reverb WebSockets
+      REVERB_APP_ID: "1001"
+      REVERB_APP_KEY: "${TRYPOST_REVERB_KEY:-trypost-reverb-key}"
+      REVERB_APP_SECRET: "${TRYPOST_REVERB_SECRET}"
+      REVERB_HOST: "0.0.0.0"
+      REVERB_PORT: "8080"
+      REVERB_SCHEME: https
+
+      # Passport OAuth & MCP Keys
+      PASSPORT_PRIVATE_KEY: "${TRYPOST_PASSPORT_PRIVATE_KEY:-}"
+      PASSPORT_PUBLIC_KEY: "${TRYPOST_PASSPORT_PUBLIC_KEY:-}"
+
+      # Storage
+      FILESYSTEM_DISK: public
+
+      # Slack HITL Notifications
+      SLACK_HITL_WEBHOOK_URL: "${TRYPOST_SLACK_HITL_WEBHOOK_URL:-}"
+
+    ports:
+      - "127.0.0.1:8330:80"     # Web UI & REST API & /mcp/trypost
+      - "127.0.0.1:8331:8080"   # Reverb WebSockets
+    volumes:
+      - trypost-storage:/var/www/html/storage/app
+    networks:
+      - database_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # The browser-publisher bridge. All social posts from both agents route
+  # through this single choke point (POST :3400/publish, 120s timeout).
+  #
+  # Anti-detect stack (see README.md + the source's BROWSER-AUDIT.md):
+  #   - HARD fail-closed egress guardrail: every session must leave as a
+  #     residential IP (ORGANIC_BROWSER_PROXY) or the session is aborted.
+  #   - Aligned browser identity: UA, Sec-Ch-Ua header, navigator.userAgentData,
+  #     connection, timezone, locale, fonts, WebRTC, misclick behavior.
+  #   - Organic warmup + pre-publish guardrail + per-account rate limits.
+  #   - A/B engine layer: ORGANIC_ENGINE=chromium (default) or CamoFox.
+  #
+  # BROWSE_MAX_CONCURRENT: Increased from 4 → 8 (2026-09-23) so that
+  # multiple free-sample ordering agents (Hanna + Bob) can run
+  # simultaneously without "browse concurrency limit reached" errors.
+  # See src/browse.js line: `const MAX_CONCURRENT = parseInt(process.env.BROWSE_MAX_CONCURRENT || '4', 10);`
+  # ---------------------------------------------------------------------------
+  browser-publisher:
+    image: trypost-browser-publisher:latest
+    container_name: trypost-browser-publisher
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - PORT=3400
+      - BRIDGE_SECRET=${TRYPOST_BROWSER_BRIDGE_SECRET:-wt-browser-bridge-secret-lair404}
+      # Residential egress via h0 (headless Mac) pproxy SOCKS5 on the tailnet.
+      # h0 = 100.125.10.10; pproxy listens :1055. Egresses as Deutsche Telekom
+      # (DE) residential — this is the IP LinkedIn sees, NOT lair404's Hetzner IP.
+      - ORGANIC_BROWSER_PROXY=socks5://100.125.10.10:1055
+      # Real macOS font faces (Helvetica Neue, Menlo, Times New Roman) mapped to
+      # the generic families — a headless Linux box's default fonts are a bot tell.
+      - FONTCONFIG_FILE=/app/fonts/99-mac-fonts.conf
+      # A/B engine: chromium (default) | camofox. CamoFox = anti-detect Firefox.
+      - ORGANIC_ENGINE=chromium
+      - ORGANIC_CAMOFOX_BASE_URL=http://100.100.10.10:9377
+      - ORGANIC_CAMOFOX_SCROLL_STEPS=5
+      # WAVE A — Bridge hardening (2026-09-22)
+      # Click timeout for /browse/click (ms). Default was 10000; increased to
+      # handle Shopware "Zur Kasse" and Wohntextilien "In den Warenkorb".
+      - ORGANIC_CLICK_TIMEOUT_MS=30000
+      # Session idle TTL (minutes). Default was 5; extended for multi-step
+      # checkout flows that exceed 5 min idle (e.g. Stoffkontor).
+      - ORGANIC_SESSION_TTL_MINUTES=15
+      # Max concurrent browse sessions (2026-09-23). Default was 4.
+      # Increased to 8 so Hanna + Bob can run free-sample ordering
+      # concurrently without "browse concurrency limit reached" errors.
+      - BROWSE_MAX_CONCURRENT=8
+    ports:
+      - "127.0.0.1:8332:3400"
+    networks:
+      - database_net
+    shm_size: 1gb
+    volumes:
+      # LIVE source (bind-mounted from the host; edit + restart to apply, no
+      # rebuild). Source of truth: trypost-fork services/browser-publisher/src.
+      - /opt/weretrade/lair404-core/services/trypost-browser-publisher/publisher/src:/app/src
+      # Durable persona cookie jars (li_at / auth_token) + the organic ledger.
+      - /opt/weretrade/lair404-core/services/trypost-browser-publisher/publisher/cookies:/app/cookies
+      # Real macOS font faces (read-only). See fonts/ in this repo dir.
+      - /opt/weretrade/lair404-core/services/trypost-browser-publisher/publisher/fonts:/app/fonts:ro
+      - /tmp:/host-tmp:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  trypost-storage:
+    name: trypost_storage_data
+
+networks:
+  database_net:
+    external: true

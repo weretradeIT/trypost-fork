@@ -156,7 +156,7 @@ qwen-3.8-27b (503s) that stalled Bob's Round 6b.
 - CamoFox (Firefox): Residential egress + macOS fingerprint; **tab stability issue on Svelte 5 islands** — tabs die on complex pages after ~30s; needs keep-alive or shorter flows
 - **Both IMAP working**: Hanna (INBOX=27), Bob (INBOX=36) — email confirmations now verifiable for both personas
 
-## Round 6b — 2026-09-23 (Hanna: Wohntextilien/Textilwerke/Hemmers · Bob: Futalis/Happydog/Belcando)
+## Round 6b — 2026-09-23 (Hanna: Wohntextilien/Textilwerke/Hemmers · Bob: Futalis/Happydog/Belcando/Seni/DecoFilms/RoyalCanin)
 
 ### ORDERED THIS ROUND — skip on next run
 | Site | URL | Persona | Engine | Status | Evidence | Ordered |
@@ -171,6 +171,9 @@ qwen-3.8-27b (503s) that stalled Bob's Round 6b.
 | Futalis | Bob | ❌ wizard-only + invisible reCAPTCHA — do not retry |
 | Happydog | Bob | (probed in R7 — Shopware, check live) |
 | Belcando | Bob | (probed in R7 — direct-form candidate) |
+| RoyalCanin | Bob | ❌ 404 on free-sample page (dead link) |
+| DecoFilms | Bob | ❌ Cookie banner (Usercentrics) blocks form submission |
+| Seni | Bob | ⚠️ SUBMITTED (on-page only, no email confirmation yet) |
 | (Bob LLM stall) | Bob | Round 6b Bob hit iteration cap: qwen-3.8 (Hetzner) 503s — FIXED via freebee-rotator-agents Groq pool |
 
 ## CAPTCHA TAXONOMY (per-site, for "avoid or solve")
