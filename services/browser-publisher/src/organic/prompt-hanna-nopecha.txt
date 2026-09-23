@@ -1,0 +1,31 @@
+# Hanna NopeCHA Registration and API Key Creation
+
+## Goal
+Register a new NopeCHA account using Hanna's Gmail (hanna.t0710@gmail.com), verify the email, and create an API key for use with the NopeCHA Token API in the trypost-browser-publisher bridge.
+
+## Steps
+1. Navigate to https://nopecha.com/
+2. Click the "Sign in" button (top-right or in the "Let's get started" card)
+3. In the modal/form, look for an option to create an account (likely "Sign up" or "Create account")
+4. Enter Hanna's Gmail: hanna.t0710@gmail.com
+5. Complete any required fields (password, etc.)
+6. Submit the registration form
+7. Check Hanna's Gmail inbox for a verification email from NopeCHA
+8. Click the verification link in the email
+9. Once verified and logged in, navigate to the API key section (likely in the dashboard or under "Account" -> "API Keys")
+10. Generate a new API key
+11. Copy the API key to the clipboard or note it down
+12. Output the API key in the following format at the end of the prompt:
+    NOPECHA_HANNA_KEY=<copied_key_here>
+
+## Constraints
+- Use Hanna's Gmail identity: Hanna Hell-Scheugenpflug, hanna.t0710@gmail.com
+- Do not use placeholder values; use real information
+- The API key must be for the NopeCHA Token API (used to solve reCAPTCHA, hCaptcha, Turnstile, etc.)
+- If a CAPTCHA appears during registration, attempt to solve it manually (as a human would)
+- Verify that the email used is exactly hanna.t0710@gmail.com
+- After obtaining the key, do not include any other text in the output line with the key
+
+## Verification
+- The prompt must pass the `validate-prompt.mjs` check (identity markers, no placeholders, allowed email, DNS pre-check)
+- The final output line must contain only the API key assignment in the format: NOPECHA_HANNA_KEY=<key>
