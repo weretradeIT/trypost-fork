@@ -4,7 +4,7 @@ Sites already successfully ordered (or submitted). The next ordering run MUST
 skip these to avoid spamming duplicate free-sample requests to the same
 vendors. Verify via email before treating as "ordered".
 
-Last updated: 2026-09-21 (A-side / bridge Chromium run)
+Last updated: 2026-09-23 (R20: Bob 23 sites, Hanna 20 sites)
 
 ## ORDERED — skip on next run
 
@@ -194,6 +194,51 @@ qwen-3.8-27b (503s) that stalled Bob's Round 6b.
 hCaptcha / FriendlyCaptcha / Turnstile) is present on lair404 (www-explorer) but
 has NO API key in any agent env → inactive. To enable "or with solving": provision
 a nopecha API key into the bridge/CamoFox env. Until then, CAPTCHA-gated sites = AVOID.
+
+
+## Round 20 — 2026-09-23 (Bob: 23 sites, Hanna: 20 sites)
+- Model: `groq/qwen/qwen3.8-27b` via freebee-rotator-agents (Groq pool)
+- Concurrency: BROWSE_MAX_CONCURRENT=8 (increased from 4)
+- Agent prompts use `bridge-ctl.py` for session management
+
+### Bob R20 — 23 sites tried
+| Site | Status | Notes |
+|------|--------|-------|
+| seni.de | DEAD | No order form found |
+| decofilms.de | BLOCKED | Cookie banner blocks all clicks |
+| belcando.de | BLOCKED | Cloudflare Turnstile (Error: 600010) |
+| naturalisdog.com | DEAD | No free sample form found |
+| platinum.com | DEAD | No free sample form |
+| whiskas.de | DEAD | No form on /gratisprobe |
+| markus-muehle.de | SUBMITTED | Form submitted successfully, email confirmed |
+| dinner-for-dogs.de | DEAD | No free sample form |
+| grazia-magazin.de | DEAD | No order form on /gratisprobe |
+| polstereibedarf-online.de | BLOCKED | Cookie banner blocks submission |
+| plisseeaufmass.de | DEAD | No direct bulk sample request form |
+| pen4you.de | DEAD | No free sample form |
+| s-stylemoebel.de | DEAD | No direct bulk sample request form |
+| brief-huellen.de | DEAD | No free sample (only bulk purchase) |
+| kartenliebe.de | DEAD | No direct bulk sample request form |
+| paneelo.com | DEAD | No direct bulk sample request form |
+| jazzpodium.de | SUBMITTED | Form submitted, no confirmation page |
+| rundas.de | ERROR | Site unreachable (403) |
+| foamnova.com | ERROR | Site unreachable (403) |
+| ravensberger-matratzen.de | ERROR | Site unreachable (403) |
+| sits-sofas.de | ERROR | Site unreachable (403) |
+| plissee-experte.de | ERROR | Site unreachable (403) |
+| synchroline.de | ERROR | Site unreachable (403) |
+
+### Summary Bob R20
+- ✅ 2 SUBMITTED: markus-muehle.de, jazzpodium.de
+- ❌ 3 BLOCKED: decofilms.de, belcando.de, polstereibedarf-online.de
+- 🔴 16 DEAD/ERROR: seni.de, naturalisdog.com, platinum.com, whiskas.de, dinner-for-dogs.de, grazia-magazin.de, plisseeaufmass.de, pen4you.de, s-stylemoebel.de, brief-huellen.de, kartenliebe.de, paneelo.com, plus 5 unreachable (403)
+
+### ENGINE NOTES
+- Bridge `/browse` (Chromium): BROWSE_MAX_CONCURRENT=8 enforced; 15 req/min limiter; 5-min idle TTL (extended to 15 from R6b)
+- All prompts passed preflight validator (real addresses, no placeholders, allowed emails, ledger guard, egress context)
+- Subagent API calls: 128, total duration: 2727s (~45m)
+- CAPTCHA-blocking sites confirmed: decofilms.de (Usercentrics cookie banner), belcando.de (Turnstile), polstereibedarf-online.de (cookie banner)
+- Sites unreachable from residential egress: rundas.de, foamnova.com, ravensberger-matratzen.de, sits-sofas.de, plissee-experte.de, synchroline.de (403)
 
 ## DISCOVERY (2026-09-23, live curl via residential egress)
 - Fabric (Hanna) pool EXHAUSTED: naturstoff, SOFACOMPANY, Stoffebox, Dielendealer,
