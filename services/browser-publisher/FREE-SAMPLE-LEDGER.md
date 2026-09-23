@@ -93,6 +93,14 @@ fingerprint engine overrides navigator.languages/Intl at C++ level; needs
 browserforge-level patch (follow-up). OS + proxy + IP identity are correct.
 API note: `/tabs` requires BOTH `userId` AND `sessionKey` in body (was documented as userId only).
 Tab stability issue on Svelte 5 forms (Josera) — tabs die after ~30s idle on complex pages.
+**FIXED (Wave B, 2026-09-23):** `camofox-keepalive.js` (5s ping heartbeat per
+tab, prevents Svelte 5 / complex-page tab death) + `camofox-form-runner.js`
+(declarative form runner: navigate→fill→submit→confirm with polling) deployed
+to bind mount. Root-cause fix for the ~30s tab-death issue.
+**LLM pool (2026-09-23):** `freebee-rotator-agents` key now fully live —
+models `groq/qwen/qwen3.8-27b`, `groq/gpt-oss-120b`, `mistral/mistral-large-latest`
+all responding via LiteLLM proxy :4000. Replaces the overloaded Hetzner
+qwen-3.8-27b (503s) that stalled Bob's Round 6b.
 
 ## Round 4 — 2026-09-22 (Parallel: 2× Hanna Chromium via bridge /browse + 1× Bob CamoFox)
 
@@ -147,3 +155,50 @@ Tab stability issue on Svelte 5 forms (Josera) — tabs die after ~30s idle on c
 - Bridge `/browse` (Chromium): 15 req/min limiter; 5-min idle TTL; residential egress verified
 - CamoFox (Firefox): Residential egress + macOS fingerprint; **tab stability issue on Svelte 5 islands** — tabs die on complex pages after ~30s; needs keep-alive or shorter flows
 - **Both IMAP working**: Hanna (INBOX=27), Bob (INBOX=36) — email confirmations now verifiable for both personas
+
+## Round 6b — 2026-09-23 (Hanna: Wohntextilien/Textilwerke/Hemmers · Bob: Futalis/Happydog/Belcando)
+
+### ORDERED THIS ROUND — skip on next run
+| Site | URL | Persona | Engine | Status | Evidence | Ordered |
+|------|-----|---------|--------|--------|----------|---------|
+| **Wohntextilien** | https://www.wohntextilien.de/stoffprobe.php | Hanna | Chromium | ✅ FULL (on-page + email) | Order #15022 + email confirmation (Wave A 30s click fix worked) | 2026-09-23 |
+
+### NOT ORDERED — resolved this round
+| Site | Persona | Result |
+|------|---------|--------|
+| Textilwerke | Hanna | ❌ PARKED DOMAIN (nameshift.com) — do not retry |
+| Stoffe-Hemmers | Hanna | ❌ Turnstile CAPTCHA + €1.95 shipping — do not retry |
+| Futalis | Bob | ❌ wizard-only + invisible reCAPTCHA — do not retry |
+| Happydog | Bob | (probed in R7 — Shopware, check live) |
+| Belcando | Bob | (probed in R7 — direct-form candidate) |
+| (Bob LLM stall) | Bob | Round 6b Bob hit iteration cap: qwen-3.8 (Hetzner) 503s — FIXED via freebee-rotator-agents Groq pool |
+
+## CAPTCHA TAXONOMY (per-site, for "avoid or solve")
+| Site | CAPTCHA type | Notes / path |
+|------|--------------|--------------|
+| Yumeko | reCAPTCHA v2 (interactive image-grid) | Cross-origin Google iframe; NO solver wired → AVOID |
+| Stoffe-Hemmers | Cloudflare Turnstile + €1.95 shipping | AVOID (Turnstile + not free) |
+| Futalis | invisible reCAPTCHA (wizard) | AVOID |
+| stoffhaus.de | reCAPTCHA | AVOID |
+| bodenservice | reCAPTCHA + Cloudflare | AVOID |
+| 8in1.de | data-sitekey (managed) | AVOID |
+| Naturalisdog (Shopify /products/futterprobe) | hCaptcha + reCAPTCHA markers | **Managed — may pass with clean fingerprint; LIVE TEST first** (best fresh Bob target, 0,00€ "In den Warenkorb") |
+| Happydog (Shopware) | captcha + Turnstile + reCAPTCHA markers on home | **LIVE TEST before judging** |
+| Belcando | Turnstile markers on home | **LIVE TEST before judging** (direct-form candidate) |
+| stoffolino / HEIN / Alena Home | account + CAPTCHA | AVOID (need accounts) |
+
+**Solver path (not yet wired):** `nopecha` CAPTCHA-solving extension (reCAPTCHA /
+hCaptcha / FriendlyCaptcha / Turnstile) is present on lair404 (www-explorer) but
+has NO API key in any agent env → inactive. To enable "or with solving": provision
+a nopecha API key into the bridge/CamoFox env. Until then, CAPTCHA-gated sites = AVOID.
+
+## DISCOVERY (2026-09-23, live curl via residential egress)
+- Fabric (Hanna) pool EXHAUSTED: naturstoff, SOFACOMPANY, Stoffebox, Dielendealer,
+  Casarista, Stoffkontor, Wohntextilien all ORDERED. Fresh candidates
+  stoffquelle.de / stoffe24.de / stoffe-luise.de = curl `[000 0]` (connection-fail,
+  INCONCLUSIVE — not dead, not confirmed; test in real browser). Buttinette = craft
+  shop (Schnittmuster patterns, NOT free fabric samples) — wrong category.
+- Pet food (Bob): Josera Katze + Hund ORDERED. Naturalisdog futterprobe = best fresh
+  target (hCaptcha live-test). 8in1.de = data-sitekey (avoid).
+- Lesson: static curl CAPTCHA markers are WEAK (global JS load ≠ active challenge).
+  Only classify BLOCKED after a live browser sees an interactive challenge.

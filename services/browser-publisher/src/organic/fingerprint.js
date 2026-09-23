@@ -247,14 +247,31 @@ export function fingerprintInitScript(userAgent, platform = 'linkedin') {
   } catch {}
 
   // --- navigator.userAgentData (Client Hints JS API) — THE critical new wave.
-  // A real Chrome 151 ALWAYS exposes navigator.userAgentData. Headless
-  // Chromium in this build exposes NONE (probe: userAgentData_present=false)
-  // while the UA + Sec-Ch-Ua header scream "Chrome 151" — a direct, instant
-  // contradiction. We synthesize a coherent object whose brands /
-  // fullVersionList / platform MATCH the Sec-Ch-Ua header and UA exactly, so
-  // the in-page API and the on-wire header cross-check clean. ---
+  // A real Chrome 151 ALWAYS exposes navigator.userAgentData with the Chrome
+  // brands. We synthesize a coherent object whose brands / fullVersionList /
+  // platform MATCH the Sec-Ch-Ua header and UA exactly, so the in-page API and
+  // the on-wire header cross-check clean.
+  //
+  // CRITICAL (2026-09-22 live probe): this Chromium build DOES expose
+  // navigator.userAgentData — but with the raw headless brands
+  // ["Not=A?Brand;99", "HeadlessChrome;151", "Chromium;151"]. The old guard
+  // (the undefined-only guard) therefore SKIPPED the patch and the in-page JS API leaked
+  // "HeadlessChrome" while the wire header said "Google Chrome" — an instant
+  // cross-signal contradiction for any JS-based fingerprinter (and the static
+  // integrity gate could not see it: it only inspects the wire header text).
+  // We now REPLACE the object whenever it is missing OR carries a headless
+  // brand, and leave a genuinely aligned object untouched (idempotent, no
+  // double-patch). ---
   try {
-    if (typeof navigator.userAgentData === 'undefined') {
+    const hasHeadlessUad = (() => {
+      try {
+        const b = navigator.userAgentData && navigator.userAgentData.brands;
+        return !!(b && Array.isArray(b) && b.some((x) => /headless/i.test(x && x.brand || '')));
+      } catch {
+        return false;
+      }
+    })();
+    if (typeof navigator.userAgentData === 'undefined' || hasHeadlessUad) {
       const brands = [
         { brand: 'Chromium', version: chromeMajor },
         { brand: 'Not_A Brand', version: '24' },
