@@ -83,6 +83,7 @@ jobs:
         env:
           DB_PORT: ${{ job.services.database.ports[matrix.port] }}
           REDIS_PORT: ${{ job.services.redis.ports['6379'] }}
+          TRYPOST_BROWSER_BRIDGE_ENABLED: 'false'
         run: php artisan test --compact --parallel
 
   backend:
