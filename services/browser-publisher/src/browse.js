@@ -209,23 +209,34 @@ export async function browseSnapshot({ sessionId }) {
   return { text, chars: text.length, lastError: s.lastError };
 }
 
-export async function browseClick({ sessionId, selector }) {
+// Frame-targeted interactions (2026-10-03): resolve the main page or the first
+// frame whose URL starts with frameUrl (cross-origin iframes like SoPost).
+function resolveFrameTarget(s, frameUrl) {
+  if (!frameUrl) return s.page;
+  const f = s.page.frames().find(fr => fr.url().startsWith(String(frameUrl)));
+  if (!f) { const e = new Error('frame not found: ' + frameUrl); e.status = 404; throw e; }
+  return f;
+}
+
+export async function browseClick({ sessionId, selector, frameUrl } = {}) {
   const s = requireSession(sessionId);
   if (!selector) { const e = new Error('click requires a selector'); e.status = 400; throw e; }
+  const target = resolveFrameTarget(s, frameUrl);
   // Human-ish: move to the element, small pre-pause, click.
-  const el = await s.page.$(selector);
+  const el = await target.$(selector);
   if (el) {
-    await humanMouseMove(s.page, el).catch(() => {});
+    await humanMouseMove(target, el).catch(() => {});
   }
   // WAVE A: use configurable click timeout
   const clickTimeout = parseInt(process.env.ORGANIC_CLICK_TIMEOUT_MS || '30000', 10);
-  await s.page.click(selector, { timeout: clickTimeout });
+  await target.click(selector, { timeout: clickTimeout });
   await s.page.waitForLoadState('domcontentloaded', { timeout: NAV_TIMEOUT_MS }).catch(() => {});
   return { url: s.page.url(), title: await s.page.title().catch(() => ''), lastError: s.lastError };
 }
 
-export async function browseWaitForSelector({ sessionId, selector, state = 'visible', timeout = WAIT_FOR_SELECTOR_TIMEOUT_MS }) {
+export async function browseWaitForSelector({ sessionId, selector, state = 'visible', timeout = WAIT_FOR_SELECTOR_TIMEOUT_MS, frameUrl } = {}) {
   const s = requireSession(sessionId);
+  const target = resolveFrameTarget(s, frameUrl);
   if (!selector) { const e = new Error('wait_for_selector requires a selector'); e.status = 400; throw e; }
   const validStates = ['attached', 'detached', 'visible', 'hidden'];
   if (!validStates.includes(state)) {
@@ -234,7 +245,7 @@ export async function browseWaitForSelector({ sessionId, selector, state = 'visi
     throw e;
   }
   try {
-    await s.page.waitForSelector(selector, { state, timeout });
+    await target.waitForSelector(selector, { state, timeout });
     return { ok: true, state, lastError: s.lastError };
   } catch (e) {
     const err = new Error(`wait_for_selector timeout: ${e.message}`);
@@ -244,19 +255,31 @@ export async function browseWaitForSelector({ sessionId, selector, state = 'visi
   }
 }
 
-export async function browseType({ sessionId, selector, text }) {
+export async function browseType({ sessionId, selector, text, frameUrl } = {}) {
   const s = requireSession(sessionId);
   if (!selector || text == null) { const e = new Error('type requires selector and text'); e.status = 400; throw e; }
+  const target = resolveFrameTarget(s, frameUrl);
   const clickTimeout = parseInt(process.env.ORGANIC_CLICK_TIMEOUT_MS || '30000', 10);
-  await s.page.click(selector, { timeout: clickTimeout }).catch(() => {}); // focus
-  await s.page.fill(selector, String(text));
+  await target.click(selector, { timeout: clickTimeout }).catch(() => {}); // focus
+  await target.fill(selector, String(text));
   return { ok: true, lastError: s.lastError };
 }
 
-export async function browseEvaluate({ sessionId, expression }) {
+export async function browseEvaluate({ sessionId, expression, frameUrl } = {}) {
   const s = requireSession(sessionId);
   if (!expression) { const e = new Error('evaluate requires an expression'); e.status = 400; throw e; }
-  const result = await s.page.evaluate(expression);
+  // Frame-targeted evaluate (2026-10-03): cross-origin iframes (SoPost on
+  // whiskas.de) can only be scripted through Playwright Frame objects. When
+  // frameUrl is given, run the expression inside the first frame whose URL
+  // starts with it. Main-frame default keeps every existing caller working.
+  let target = s.page;
+  if (frameUrl) {
+    const frames = s.page.frames();
+    const f = frames.find(fr => fr.url().startsWith(String(frameUrl)));
+    if (!f) { const e = new Error('frame not found: ' + frameUrl); e.status = 404; throw e; }
+    target = f;
+  }
+  const result = await target.evaluate(expression);
   return { result: result === undefined ? null : result, lastError: s.lastError };
 }
 
