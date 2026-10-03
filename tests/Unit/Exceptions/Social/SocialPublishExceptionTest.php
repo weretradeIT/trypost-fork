@@ -76,7 +76,7 @@ test('fromApiResponse creates exception from response', function () {
 });
 
 test('error category enum has all expected cases', function () {
-    expect(ErrorCategory::cases())->toHaveCount(10)
+    expect(ErrorCategory::cases())->toHaveCount(11)
         ->and(ErrorCategory::MediaFormat->value)->toBe('media_format')
         ->and(ErrorCategory::RateLimit->value)->toBe('rate_limit')
         ->and(ErrorCategory::Permission->value)->toBe('permission')
@@ -86,7 +86,8 @@ test('error category enum has all expected cases', function () {
         ->and(ErrorCategory::PlatformUnavailable->value)->toBe('platform_unavailable')
         ->and(ErrorCategory::Timeout->value)->toBe('timeout')
         ->and(ErrorCategory::TokenExpired->value)->toBe('token_expired')
-        ->and(ErrorCategory::JobFailed->value)->toBe('job_failed');
+        ->and(ErrorCategory::JobFailed->value)->toBe('job_failed')
+        ->and(ErrorCategory::EgressPolicy->value)->toBe('egress_policy');
 });
 
 test('error category marks only in-flight interruptions as resumable', function (ErrorCategory $category, bool $resumable) {
@@ -102,6 +103,7 @@ test('error category marks only in-flight interruptions as resumable', function 
     'permission' => [ErrorCategory::Permission, false],
     'rate limit' => [ErrorCategory::RateLimit, false],
     'unknown' => [ErrorCategory::Unknown, false],
+    'egress policy' => [ErrorCategory::EgressPolicy, false],
 ]);
 
 test('error category tryFromContext reads a stored category', function (?array $context, ?ErrorCategory $expected) {
