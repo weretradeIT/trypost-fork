@@ -14,6 +14,7 @@ export default defineConfigWithVueTs(
             'bootstrap/ssr',
             'tailwind.config.js',
             'resources/js/components/ui/*',
+            'services/browser-publisher/**',
             // Wayfinder regenerates these on every build with import order
             // matching PHP file scan, not alphabetical. Excluding them avoids
             // a perpetual fight between the generator and import/order.
