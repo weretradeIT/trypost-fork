@@ -4,7 +4,7 @@ Sites already successfully ordered (or submitted). The next ordering run MUST
 skip these to avoid spamming duplicate free-sample requests to the same
 vendors. Verify via email before treating as "ordered".
 
-Last updated: 2026-10-03 (R20: Bob 23 sites, Hanna 20 sites) + v9/v10 update
+Last updated: 2026-10-05 (v11 live fixes + results: orthomol/Naturalisdog/Jazzpodium SUBMITTED, Happydog NOT_FREE, Belcando no samples)
 
 ## ORDERED — skip on next run
 
@@ -54,21 +54,56 @@ Last updated: 2026-10-03 (R20: Bob 23 sites, Hanna 20 sites) + v9/v10 update
 | orthomol-immun.de | https://www.orthomol.com/de-de/service/orthomol-immun-probe | UNCERTAIN | Filled 10 fields, clicked submit, no strict success signal |
 | orthomol-pro6.de | https://www.orthomol.com/de-de/service/orthomol-pro-6-produktprobe | ERROR | No form fields filled — submit skipped (guard) |
 
+## v11 LIVE RESULTS (2026-10-05) — bob-agent #50 + hanna-agent #48 (merged & promoted)
+
+Engine fixes landed first, then live re-tests of the v11 priority targets.
+Persona rotation: Bob = Burglengenfeld (fsample.bob.burglengenfeld@lair404.xyz),
+Hanna = Beratzhausen (fsample.hanna.beratzhausen@lair404.xyz). Egress: pproxy
+SOCKS5 100.125.10.10:1055 → 91.46.17.201 (residential), accepted by bridge guard.
+
+| Site | Agent | Status | Evidence / notes |
+|------|-------|--------|------------------|
+| orthomol-pro6.de | Bob + Hanna | ✅ SUBMITTED | AJAX form (sfFormHandler), 12 fields, form_name=**Pro_6** (underscore — verified in live hidden input). Ledger entries both agents. |
+| orthomol-immun.de | Bob + Hanna | ✅ SUBMITTED | AJAX form, form_name=**Immun**, formId 2247 |
+| orthomol-neuro.de | Bob + Hanna | ✅ SUBMITTED | AJAX form, form_name=**Neuroprotect**, formId 375268 |
+| naturalisdog.com | Bob + Hanna | ✅ SUBMITTED | Shopify cart: "In den Warenkorb" clicked, cart-addition success detected. Sample page `/products/einzeldosen-zum-ausprobieren` (futterprobe URL 404'd — fixed). |
+| naturalisdog.de | Bob | ✅ SUBMITTED | Same Shopify cart flow as .com |
+| jazzpodium.de | Bob + Hanna | ✅ SUBMITTED | Divi/ET Builder AJAX form at `/probeheft/` — special handler. No confirmation page (vendor). |
+| **happydog.de** | Bob | 🚫 **NOT_FREE** | Probiertaschen are a **PAID product (5,99 EUR)**, customer account required ("Kundenkonto einloggen"), max 1 per 90 days. Old path added regular dog food to cart = false SUBMITTED. Now returns NOT_FREE. |
+| **belcando.de** | Bob | 🚫 **NO SAMPLES** | No free sample option anywhere on site; all products purchase-only. R20 Turnstile was a red herring — nothing to order even without it. |
+
+**Engine bugs found & fixed in v11 (both agents, verified live):**
+1. **Site filter inverted** — `s[0].lower() in wanted.lower()` meant `--site happydog` matched 0 sites (checked the wrong direction). Now `wanted.lower() in s[0].lower()`.
+2. **orthomol form_name was being corrupted** — old map wrote `Pro-6`/`Neuro`; the live hidden inputs hold `Pro_6`/`Neuroprotect`/`Immun`. Now keeps the page pre-fill and only sets the correct value if the field is empty (race: sometimes the page pre-fill isn't present yet).
+3. **Happydog false-positive** — category page (`/hundefutter/naturcroq`, 22 buy-widgets, all hidden inputs, nothing to fill) → guard "No form fields filled" + wrong handler. Now: NOT_FREE early return with a clear note; direct_form_url → `/hundefutter/probiertaschen`.
+4. **Slack notify crashed** — `notify_free_sample_success()` was called with 3 args vs 4 required (missing `order_id`). Now passes `(AGENT_NAME, persona, site, order_id)`.
+5. `fill_form_with_llm` 4-arg call vs 3-arg signature in llm_client — fixed to `(sid, persona, eval_js)`.
+
+**Still pending (carry to v12):**
+- Tailscale exit node via h0: `ExitNodeOption: true` locally but peers see `false`; `tailscale set --exit-node=h0` → "not advertising an exit node". No valid Tailscale API token to check ACLs. **Working fallback: pproxy SOCKS5 (91.46.17.201) — functional and accepted.**
+- CAPTCHA solver: Vault key is a sandbox key (`sand-...`) → HTTP 400 on real CAPTCHAs. NopeCHA dismissed (pay-only). Need a free/open-source solver or a valid key before re-attempting CAPTCHA-gated sites.
+- Email confirmation: only Naturalis Dog email received (filed in Junk by sieve). Orthomol/Jazzpodium = no immediate confirmation (double-opt-in / delayed / none). LEDGER entries are the current proof.
+- Fabric pool (stoffquelle.de / stoffe24.de / stoffe-luise.de): still inconclusive from curl — need live browser test (Hanna).
+
 ## NOT YET ORDERED — candidates for next run (verified orderable, CAPTCHA-free)
 
 | Site | Why orderable | Notes |
 |------|---------------|-------|
-| Naturalisdog (Shopify /products/futterprobe) | hCaptcha + reCAPTCHA markers — **LIVE TEST first** | Best fresh Bob target, 0,00€ "In den Warenkorb" |
-| Happydog (Shopware) | captcha + Turnstile + reCAPTCHA markers on home | **LIVE TEST before judging** |
-| Belcando | Turnstile markers on home | **LIVE TEST before judging** (direct-form candidate) |
-| markus-muehle.de | SUBMITTED in R20, form works | Probed in R20 — confirmed orderable |
-| jazzpodium.de | SUBMITTED in R20, no confirmation page | Probed in R20 — needs retry |
+| markus-muehle.de | SUBMITTED in R20, form works | Probed in R20 — confirmed orderable (Bob done; Hanna can cross-pollinate) |
+| stoffquelle.de / stoffe24.de / stoffe-luise.de | Fabric candidates, inconclusive curl (000) | Need live browser test (Hanna) — not dead, not confirmed |
+
+**v11 resolved candidates (2026-10-05, removed from list — see v11 LIVE RESULTS):**
+- Naturalisdog .de/.com → **SUBMITTED** (0,00 € sample units into Shopify cart).
+- Happydog → **NOT_FREE** (paid 5,99 EUR Probiertaschen + account; move to BLOCKED/NO-SAMPLES).
+- Belcando → **NO SAMPLES** (purchase-only; move to BLOCKED/NO-SAMPLES).
+- jazzpodium.de → **SUBMITTED** (AJAX `/probeheft/`).
+- Orthomol immun/neuro/pro6 → **SUBMITTED** (AJAX form_name Pro_6/Neuroprotect/Immun) — remove from BLOCKED.
 
 ## BLOCKED — do not waste time (CAPTCHA / dead / hard)
 
 | Site | Reason |
 |------|--------|
-| Orthomol (immun/neuro/pro6) | No form fields found / page dead / rate limited |
+| ~~Orthomol (immun/neuro/pro6)~~ | **RESOLVED v11 (2026-10-05)** — all 3 SUBMITTED via AJAX form (form_name Pro_6/Neuroprotect/Immun). Keep OUT of future runs. |
 | shop-apotheke.de | No form on /kontakt page |
 | docmorris.de | recaptcha (sitekey not found) |
 | josera.com (main) | recaptcha (createTask failed: HTTP 400) |
@@ -199,9 +234,9 @@ qwen-3.8-27b (503s) that stalled Bob's Round 6b.
 | stoffhaus.de | reCAPTCHA | AVOID |
 | bodenservice | reCAPTCHA + Cloudflare | AVOID |
 | 8in1.de | data-sitekey (managed) | AVOID |
-| Naturalisdog (Shopify /products/futterprobe) | hCaptcha + reCAPTCHA markers | **Managed — may pass with clean fingerprint; LIVE TEST first** (best fresh Bob target, 0,00€ "In den Warenkorb") |
-| Happydog (Shopware) | captcha + Turnstile + reCAPTCHA markers on home | **LIVE TEST before judging** |
-| Belcando | Turnstile markers on home | **LIVE TEST before judging** (direct-form candidate) |
+| Naturalisdog (Shopify /products/futterprobe) | hCaptcha + reCAPTCHA markers | **RESOLVED v11 — SUBMITTED** (managed CAPTCHA passed clean fingerprint; 0,00 € cart). Sample page is `/products/einzeldosen-zum-ausprobieren`. |
+| Happydog (Shopware) | ~~captcha + Turnstile + reCAPTCHA markers on home~~ | **NOT_FREE v11** — Probiertaschen paid 5,99 EUR + account; nothing free to order. |
+| Belcando | ~~Turnstile markers on home~~ | **NO SAMPLES v11** — purchase-only, no free sample. Turnstile was a red herring. |
 | stoffolino / HEIN / Alena Home | account + CAPTCHA | AVOID (need accounts) |
 
 **Solver path (not yet wired):** `nopecha` CAPTCHA-solving extension (reCAPTCHA /
@@ -209,23 +244,20 @@ hCaptcha / FriendlyCaptcha / Turnstile) is present on lair404 (www-explorer) but
 has NO API key in any agent env → inactive. To enable "or with solving": provision
 a nopecha API key into the bridge/CamoFox env. Until then, CAPTCHA-gated sites = AVOID.
 
-## Next Iteration — v11 targets (fresh candidates)
-Priority order for next run:
+## Next Iteration — v12 targets (fresh candidates)
+Priority order for next run (v11 resolved targets removed — see v11 LIVE RESULTS):
 
 **Hanna (CamoFox/Firefox):**
 1. stoffquelle.de / stoffe24.de / stoffe-luise.de (fabric, inconclusive curl — need live browser test)
-2. markus-muehle.de (already SUBMITTED in R20, but Hanna hasn't tried — cross-pollinate)
-3. jazzpodium.de (already SUBMITTED in R20, cross-pollinate)
+2. markus-muehle.de (already SUBMITTED in R20 by Bob; Hanna hasn't tried — cross-pollinate)
 
 **Bob (Selenium Bridge/Chromium):**
-1. Naturalisdog futterprobe (Shopify, hCaptcha — best fresh target, LIVE TEST)
-2. Happydog (Shopware, captcha markers — LIVE TEST)
-3. Belcando (Turnstile — LIVE TEST)
-4. markus-muehle.de (cross-pollinate from R20)
-5. jazzpodium.de (cross-pollinate from R20)
+1. markus-muehle.de (cross-pollinate from R20 — done in R20, re-verify if persona changed)
+2. Fresh pet-food candidates (current pool: Josera done, Naturalisdog done, Happydog NOT_FREE, Belcando NO SAMPLES)
 
-**Engine improvements needed before next run:**
-- noopecha CAPTCHA solver API key provisioning (for Turnstile/reCAPTCHA/hCaptcha)
-- orthomol form discovery — find actual sample form URLs (not main site)
-- Hanna locale/TZ fix (Camoufox C++ fingerprint override)
-- Bob IMAP verification on lair404 (credential still placeholder)
+**Engine / infra to unblock next:**
+- **Tailscale exit node via h0** — `ExitNodeOption: true` locally but peers see `false`; `tailscale set --exit-node=h0` fails ("not advertising an exit node"). No valid Tailscale API token to inspect ACLs. Working fallback = pproxy SOCKS5 (91.46.17.201).
+- **CAPTCHA solver** — Vault key is a sandbox key (`sand-...`) → HTTP 400 on real CAPTCHAs. NopeCHA dismissed (pay-only). Need a free/open-source solver or a valid key.
+- **Email confirmation** — verify orthomol/jazzpodium submissions (double-opt-in / delayed). Naturalis Dog email landed in Junk (sieve) — tune spam filter.
+- Hanna locale/TZ fix (Camoufox C++ fingerprint override) — still open.
+- Bob IMAP verification on lair404 (credential still placeholder).
