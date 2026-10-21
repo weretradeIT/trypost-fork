@@ -46,10 +46,10 @@ export const LAUNCH_ARGS = [
   // IP via STUN even though the page loads through the residential proxy — a hard
   // cross-signal contradiction. With no non-proxied path, ICE candidates come from
   // the proxy egress, so the leaked IP == the egress IP.
-  '--webrtc-ip-handling-policy=disable_non_proxied',
+  '--webrtc-ip-handling-policy=disable_non_proxied_udp',
   // Belt-and-suspenders: also force ICE to proxy-only so no local/host candidate
   // is even generated.
-  '--force-webrtc-ip-handling-policy=disable_non_proxied',
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
 ];
 
 const UA_BY_PLATFORM = {
@@ -111,14 +111,22 @@ export async function createAlignedBrowser({ platform = 'x', headless = true } =
   // HARD: no platform traffic from a datacenter IP. Covers warmup + publish.
   await assertEgressAllowed();
 
-  const launchOpts = { headless, args: [...LAUNCH_ARGS] };
+  const ua = userAgentFor(platform);
+  const key = String(platform || '').toLowerCase();
+
+  const launchOpts = {
+    headless,
+    args: [
+      ...LAUNCH_ARGS,
+      `--user-agent=${ua}`,
+      '--lang=de-DE',
+    ],
+  };
   if (ORGANIC_CONFIG.browserProxy) {
     launchOpts.proxy = { server: ORGANIC_CONFIG.browserProxy };
   }
 
   const browser = await chromium.launch(launchOpts);
-  const ua = userAgentFor(platform);
-  const key = String(platform || '').toLowerCase();
 
   const context = await browser.newContext({
     viewport: viewportFor(platform),

@@ -53,7 +53,8 @@ RUN apk add --no-cache \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && apk del $PHPIZE_DEPS \
-    && rm -rf /tmp/* /var/cache/apk/*
+    && rm -rf /tmp/* /var/cache/apk/* \
+    && printf '[www]\npm.max_requests = 100\n' > /usr/local/etc/php-fpm.d/zz-security.conf
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
