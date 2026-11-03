@@ -13,6 +13,7 @@ import {
   browseSession, browseNavigate, browseSnapshot, browseClick, browseType,
   browseEvaluate, browseScreenshot, browseScroll, browseClose, browseSessions,
   browseWaitForSelector,
+  browseHumanClick, browseHumanType, browsePreWarm, browseHumanScroll,
 } from './browse.js';
 import { buildMeasurements, checkLiveActionIntegrity } from './organic/integrity.js';
 import { clientHintsFor, userAgentFor, LAUNCH_ARGS } from './organic/browser.js';
@@ -252,6 +253,12 @@ app.post('/browse/scroll', rateLimit(browseLimiter, 'burst'), browseHandler(brow
 app.post('/browse/wait_for_selector', rateLimit(browseLimiter, 'burst'), browseHandler(browseWaitForSelector));
 app.post('/browse/close', rateLimit(browseLimiter, 'burst'), browseHandler(browseClose));
 app.get('/browse/sessions', (req, res) => res.json({ success: true, ...browseSessions() }));
+
+// --- Anti-bot v2: trusted-event endpoints (Bézier click, native type, pre-warm)
+app.post('/browse/human_click', rateLimit(browseLimiter, 'burst'), browseHandler(browseHumanClick));
+app.post('/browse/human_type', rateLimit(browseLimiter, 'burst'), browseHandler(browseHumanType));
+app.post('/browse/pre_warm', rateLimit(browseLimiter, 'burst'), browseHandler(browsePreWarm));
+app.post('/browse/human_scroll', rateLimit(browseLimiter, 'burst'), browseHandler(browseHumanScroll));
 
 // Unknown paths: never echo the route (avoid information disclosure).
 app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));

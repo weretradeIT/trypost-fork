@@ -38,7 +38,7 @@
  */
 
 import { createAlignedBrowser } from './organic/browser.js';
-import { humanPause, humanMouseMove, humanClick, humanScroll } from './organic/behavior.js';
+import { humanPause, humanMouseMove, humanClick, humanScroll, humanBezierClick, humanNativeType, humanPreWarm } from './organic/behavior.js';
 import { ORGANIC_CONFIG } from './organic/config.js';
 
 // --- Session registry --------------------------------------------------------
@@ -315,6 +315,70 @@ export function browseSessions() {
     lastError: s.lastError,
   }));
   return { active: activeCount(), maxConcurrent: MAX_CONCURRENT, sessions: list };
+}
+
+// --- Anti-bot v2 endpoints (Bézier click, native type, pre-warm) -------------
+// These use the native-event primitives from behavior.js that produce
+// isTrusted=true pointer and keyboard events, defeating Arkose Labs /
+// Cloudflare Turnstile heuristics.
+
+/**
+ * Human-like click via cubic Bézier cursor path + native mouse down/up.
+ * Every mousemove, mousedown, mouseup event is isTrusted=true.
+ * Falls back to Playwright's standard click on selector-resolve failure.
+ */
+export async function browseHumanClick({ sessionId, selector, frameUrl } = {}) {
+  const s = requireSession(sessionId);
+  if (!selector) { const e = new Error('human_click requires a selector'); e.status = 400; throw e; }
+  const target = resolveFrameTarget(s, frameUrl);
+  await humanBezierClick(target, selector);
+  await s.page.waitForLoadState('domcontentloaded', { timeout: NAV_TIMEOUT_MS }).catch(() => {});
+  return { url: s.page.url(), title: await s.page.title().catch(() => ''), lastError: s.lastError };
+}
+
+/**
+ * Human-like typing via native keyboard.press() with QWERTZ bi-gram latency,
+ * log-normal jitter, and occasional typo+correction. Focuses the element first
+ * via Bézier click. Every keydown/keypress/input/keyup event is isTrusted=true.
+ */
+export async function browseHumanType({ sessionId, selector, text, frameUrl, typoProbability } = {}) {
+  const s = requireSession(sessionId);
+  if (!selector || text == null) { const e = new Error('human_type requires selector and text'); e.status = 400; throw e; }
+  const target = resolveFrameTarget(s, frameUrl);
+  await humanNativeType(target, selector, String(text), {
+    typoProbability: typoProbability != null ? Number(typoProbability) : undefined,
+  });
+  return { ok: true, lastError: s.lastError };
+}
+
+/**
+ * Session pre-warming: ambient mouse drift, scroll events, and focus signals
+ * to establish a human session fingerprint before high-value interactions.
+ * Defends against time-to-first-interaction detection (bots <500ms, humans 2-8s).
+ */
+export async function browsePreWarm({ sessionId, durationMs = 3000 } = {}) {
+  const s = requireSession(sessionId);
+  const budget = Math.max(1000, Math.min(10000, Number(durationMs) || 3000));
+  await humanPreWarm(s.page, budget);
+  return { ok: true, durationMs: budget, lastError: s.lastError };
+}
+
+/**
+ * Native wheel-based scroll with human-like increments and pauses.
+ * Uses page.mouse.wheel() for isTrusted=true wheel events.
+ */
+export async function browseHumanScroll({ sessionId, deltaY = 300, steps = 4 } = {}) {
+  const s = requireSession(sessionId);
+  const totalDelta = Math.max(50, Math.min(2000, Number(deltaY) || 300));
+  const numSteps = Math.max(2, Math.min(12, Number(steps) || 4));
+  const perStep = Math.round(totalDelta / numSteps);
+  for (let i = 0; i < numSteps; i++) {
+    // Slightly varied step size for human-like rhythm.
+    const jitteredDelta = perStep + (Math.random() - 0.5) * perStep * 0.3;
+    await s.page.mouse.wheel(0, jitteredDelta);
+    await humanPause(200, 800);
+  }
+  return { ok: true, scrolled: totalDelta, steps: numSteps, lastError: s.lastError };
 }
 
 export { evictIdle as browseEvictIdle, activeCount as browseActiveCount };
