@@ -12,7 +12,7 @@ import { lastEgressVerdict } from './organic/egress.js';
 import {
   browseSession, browseNavigate, browseSnapshot, browseClick, browseType,
   browseEvaluate, browseScreenshot, browseScroll, browseClose, browseSessions,
-  browseWaitForSelector,
+  browseWaitForSelector, browseFrames,
   browseHumanClick, browseHumanType, browsePreWarm, browseHumanScroll,
 } from './browse.js';
 import { buildMeasurements, checkLiveActionIntegrity } from './organic/integrity.js';
@@ -251,6 +251,11 @@ app.post('/browse/evaluate', rateLimit(browseLimiter, 'burst'), browseHandler(br
 app.post('/browse/screenshot', rateLimit(browseLimiter, 'burst'), browseHandler(browseScreenshot));
 app.post('/browse/scroll', rateLimit(browseLimiter, 'burst'), browseHandler(browseScroll));
 app.post('/browse/wait_for_selector', rateLimit(browseLimiter, 'burst'), browseHandler(browseWaitForSelector));
+app.post('/browse/frames', rateLimit(browseLimiter, 'burst'), browseHandler(browseFrames));
+app.get('/browse/frames/:sessionId', rateLimit(browseLimiter, 'burst'), (req, res) => {
+  req.body = { sessionId: req.params.sessionId };
+  return browseHandler(browseFrames)(req, res);
+});
 app.post('/browse/close', rateLimit(browseLimiter, 'burst'), browseHandler(browseClose));
 app.get('/browse/sessions', (req, res) => res.json({ success: true, ...browseSessions() }));
 

@@ -38,7 +38,18 @@
  */
 
 import { createAlignedBrowser } from './organic/browser.js';
-import { humanPause, humanMouseMove, humanClick, humanScroll, humanBezierClick, humanNativeType, humanPreWarm } from './organic/behavior.js';
+import {
+  humanPause,
+  humanMouseMove,
+  humanClick,
+  humanScroll,
+  humanBezierClick,
+  humanNativeType,
+  humanPreWarm,
+  humanRelaySensorEvents,
+  humanNativeMouseMove,
+  withTimeout,
+} from './organic/behavior.js';
 import { ORGANIC_CONFIG } from './organic/config.js';
 
 // --- Session registry --------------------------------------------------------
@@ -58,11 +69,49 @@ function now() { return Date.now(); }
 
 function isIdle(s) { return now() - s.lastUsed > IDLE_TTL_MS; }
 
+// --- Hot Standby Pool for instantaneous session creation (<50ms) -------------
+const standbyPool = new Map(); // platform -> { promise, createdAt }
+
+async function createRawSession(platform) {
+  const { browser, context, close, userAgent, platform: pKey } = await createAlignedBrowser({ platform });
+  const page = await context.newPage();
+  return { browser, context, page, close, userAgent, pKey, createdAt: Date.now() };
+}
+
+export function replenishStandby(platform = 'linkedin') {
+  if (activeCount() >= MAX_CONCURRENT) return;
+  if (!standbyPool.has(platform)) {
+    const promise = createRawSession(platform).catch((err) => {
+      standbyPool.delete(platform);
+      console.warn(`[StandbyPool] Failed to warm standby session for ${platform}: ${err.message}`);
+      return null;
+    });
+    standbyPool.set(platform, { promise, createdAt: Date.now() });
+  }
+}
+
+export async function drainStandbyPool() {
+  for (const [platform, item] of standbyPool) {
+    standbyPool.delete(platform);
+    try {
+      const raw = await item.promise;
+      if (raw) await raw.close().catch(() => {});
+    } catch (_) {}
+  }
+}
+
 function evictIdle() {
   for (const [id, s] of sessions) {
     if (!s.alive || isIdle(s)) {
       sessions.delete(id);
       s.close().catch(() => {});
+    }
+  }
+  // Check if any standby session has aged out (> 15 min)
+  for (const [platform, item] of standbyPool) {
+    if (Date.now() - item.createdAt > IDLE_TTL_MS) {
+      standbyPool.delete(platform);
+      item.promise.then((raw) => { if (raw) raw.close().catch(() => {}); }).catch(() => {});
     }
   }
 }
@@ -98,6 +147,7 @@ async function waitForLoad(page) {
  * Open (or reuse) a session. `url` is optional — a session can start blank and
  * be navigated later. `platform` selects the aligned identity: 'linkedin'
  * (macOS Chrome) or 'x' (Windows Chrome). Default 'linkedin' for DE sites.
+ * Uses the pre-warmed standby pool for instant sub-50ms session starts.
  */
 export async function browseSession({ url, platform = 'linkedin' } = {}) {
   if (activeCount() >= MAX_CONCURRENT) {
@@ -106,14 +156,21 @@ export async function browseSession({ url, platform = 'linkedin' } = {}) {
     throw err;
   }
 
-  const { browser, context, close, userAgent, platform: pKey } = await createAlignedBrowser({ platform });
-  const page = await context.newPage();
-  const id = `bs_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+  let raw = null;
+  if (standbyPool.has(platform)) {
+    const item = standbyPool.get(platform);
+    standbyPool.delete(platform);
+    raw = await item.promise;
+    // Replenish in the background for the next caller
+    setTimeout(() => replenishStandby(platform), 100);
+  }
 
-  // Console + crash diagnostics: a page crash is the #1 way sessions die
-  // silently (we hit this with PEN4YOU). Surface it on the session.
-  page.on('crash', () => { s.alive = false; s.lastError = 'page crashed'; });
-  page.on('pageerror', (e) => { s.lastError = `pageerror: ${e.message}`; });
+  if (!raw || !raw.page || raw.page.isClosed()) {
+    raw = await createRawSession(platform);
+  }
+
+  const { browser, context, page, close, userAgent, pKey } = raw;
+  const id = `bs_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 
   const s = {
     id, browser, context, page,
@@ -124,8 +181,15 @@ export async function browseSession({ url, platform = 'linkedin' } = {}) {
       s.alive = false;
       await page.close().catch(() => {});
       await close();
+      replenishStandby(pKey);
     },
   };
+
+  // Console + crash diagnostics: a page crash is the #1 way sessions die
+  // silently (we hit this with PEN4YOU). Surface it on the session.
+  page.on('crash', () => { s.alive = false; s.lastError = 'page crashed'; });
+  page.on('pageerror', (e) => { s.lastError = `pageerror: ${e.message}`; });
+
   sessions.set(id, s);
 
   if (url) {
@@ -209,27 +273,77 @@ export async function browseSnapshot({ sessionId }) {
   return { text, chars: text.length, lastError: s.lastError };
 }
 
-// Frame-targeted interactions (2026-10-03): resolve the main page or the first
-// frame whose URL starts with frameUrl (cross-origin iframes like SoPost).
-function resolveFrameTarget(s, frameUrl) {
+// Frame-targeted interactions: resolve the main page or the matching frame.
+// Supports substring matching on frame URL, exact/substring on frame name,
+// case-insensitive matching, and detailed error messages with available frames.
+// Prioritizes child iframes over main frame when frameUrl is provided.
+export function resolveFrameTarget(s, frameUrl) {
   if (!frameUrl) return s.page;
-  const f = s.page.frames().find(fr => fr.url().startsWith(String(frameUrl)));
-  if (!f) { const e = new Error('frame not found: ' + frameUrl); e.status = 404; throw e; }
-  return f;
+  const target = String(frameUrl).trim();
+  if (!target) return s.page;
+
+  const allFrames = s.page.frames();
+  const mainFrame = s.page.mainFrame();
+  const childFrames = allFrames.filter(fr => fr !== mainFrame);
+
+  // When a frameUrl is specified, search child iframes first so host pages
+  // sharing domain substrings (e.g. google.com/recaptcha) don't mask iframes.
+  const searchPool = [...childFrames, mainFrame];
+
+  // 1. Exact match on URL or frame name
+  let f = searchPool.find(fr => fr.url() === target || fr.name() === target);
+  if (f) return f;
+
+  // 2. Substring match on URL
+  f = searchPool.find(fr => fr.url() && fr.url().includes(target));
+  if (f) return f;
+
+  // 3. Substring match on frame name
+  f = searchPool.find(fr => fr.name() && fr.name().includes(target));
+  if (f) return f;
+
+  // 4. StartsWith match (for legacy callers)
+  f = searchPool.find(fr => fr.url() && fr.url().startsWith(target));
+  if (f) return f;
+
+  // 5. Case-insensitive substring match
+  const lower = target.toLowerCase();
+  f = searchPool.find(fr => (fr.url() && fr.url().toLowerCase().includes(lower)) ||
+                            (fr.name() && fr.name().toLowerCase().includes(lower)));
+  if (f) return f;
+
+  const available = allFrames.map(fr => ({ name: fr.name(), url: fr.url() }));
+  const e = new Error(`frame not found for target "${target}". Available frames (${allFrames.length}): ${JSON.stringify(available)}`);
+  e.status = 404;
+  throw e;
 }
 
-export async function browseClick({ sessionId, selector, frameUrl } = {}) {
+export async function browseClick({ sessionId, selector, frameUrl, force = false } = {}) {
   const s = requireSession(sessionId);
   if (!selector) { const e = new Error('click requires a selector'); e.status = 400; throw e; }
   const target = resolveFrameTarget(s, frameUrl);
-  // Human-ish: move to the element, small pre-pause, click.
+  const isFrameTarget = target !== s.page;
+  // Human-ish: move to the element, small pre-pause, click (main page only).
   const el = await target.$(selector);
-  if (el) {
+  if (el && !isFrameTarget) {
     await humanMouseMove(target, el).catch(() => {});
   }
   // WAVE A: use configurable click timeout
   const clickTimeout = parseInt(process.env.ORGANIC_CLICK_TIMEOUT_MS || '30000', 10);
-  await target.click(selector, { timeout: clickTimeout });
+  try {
+    // For iframe targets, force=true by default so parent overlays don't block
+    await target.click(selector, {
+      timeout: isFrameTarget ? 5000 : clickTimeout,
+      force: force || isFrameTarget,
+    });
+  } catch (err) {
+    // If intercepted by an overlay/backdrop or pointer-events check, retry with force: true
+    if (/intercepts pointer events/i.test(err.message) && !force) {
+      await target.click(selector, { timeout: 10000, force: true });
+    } else {
+      throw err;
+    }
+  }
   await s.page.waitForLoadState('domcontentloaded', { timeout: NAV_TIMEOUT_MS }).catch(() => {});
   return { url: s.page.url(), title: await s.page.title().catch(() => ''), lastError: s.lastError };
 }
@@ -261,26 +375,36 @@ export async function browseType({ sessionId, selector, text, frameUrl } = {}) {
   const target = resolveFrameTarget(s, frameUrl);
   const clickTimeout = parseInt(process.env.ORGANIC_CLICK_TIMEOUT_MS || '30000', 10);
   await target.click(selector, { timeout: clickTimeout }).catch(() => {}); // focus
-  await target.fill(selector, String(text));
+  try {
+    await target.fill(selector, String(text));
+  } catch (fillErr) {
+    if (/Input of type "(radio|checkbox)" cannot be filled/i.test(fillErr.message)) {
+      await target.check(selector).catch(() => target.click(selector));
+    } else {
+      throw fillErr;
+    }
+  }
   return { ok: true, lastError: s.lastError };
 }
 
 export async function browseEvaluate({ sessionId, expression, frameUrl } = {}) {
   const s = requireSession(sessionId);
   if (!expression) { const e = new Error('evaluate requires an expression'); e.status = 400; throw e; }
-  // Frame-targeted evaluate (2026-10-03): cross-origin iframes (SoPost on
-  // whiskas.de) can only be scripted through Playwright Frame objects. When
-  // frameUrl is given, run the expression inside the first frame whose URL
-  // starts with it. Main-frame default keeps every existing caller working.
-  let target = s.page;
-  if (frameUrl) {
-    const frames = s.page.frames();
-    const f = frames.find(fr => fr.url().startsWith(String(frameUrl)));
-    if (!f) { const e = new Error('frame not found: ' + frameUrl); e.status = 404; throw e; }
-    target = f;
-  }
+  const target = resolveFrameTarget(s, frameUrl);
   const result = await target.evaluate(expression);
   return { result: result === undefined ? null : result, lastError: s.lastError };
+}
+
+export async function browseFrames({ sessionId } = {}) {
+  const s = requireSession(sessionId);
+  const frames = s.page.frames().map((f, i) => ({
+    index: i,
+    name: f.name() || '',
+    url: f.url() || '',
+    isDetached: f.isDetached(),
+    parent: f.parentFrame() ? f.parentFrame().url() : null,
+  }));
+  return { frames, count: frames.length, lastError: s.lastError };
 }
 
 export async function browseScreenshot({ sessionId }) {
@@ -331,7 +455,11 @@ export async function browseHumanClick({ sessionId, selector, frameUrl } = {}) {
   const s = requireSession(sessionId);
   if (!selector) { const e = new Error('human_click requires a selector'); e.status = 400; throw e; }
   const target = resolveFrameTarget(s, frameUrl);
-  await humanBezierClick(target, selector);
+  if (target === s.page) {
+    await humanBezierClick(target, selector);
+  } else {
+    await target.click(selector, { timeout: 30000 });
+  }
   await s.page.waitForLoadState('domcontentloaded', { timeout: NAV_TIMEOUT_MS }).catch(() => {});
   return { url: s.page.url(), title: await s.page.title().catch(() => ''), lastError: s.lastError };
 }
@@ -345,9 +473,13 @@ export async function browseHumanType({ sessionId, selector, text, frameUrl, typ
   const s = requireSession(sessionId);
   if (!selector || text == null) { const e = new Error('human_type requires selector and text'); e.status = 400; throw e; }
   const target = resolveFrameTarget(s, frameUrl);
-  await humanNativeType(target, selector, String(text), {
-    typoProbability: typoProbability != null ? Number(typoProbability) : undefined,
-  });
+  if (target === s.page) {
+    await humanNativeType(target, selector, String(text), {
+      typoProbability: typoProbability != null ? Number(typoProbability) : undefined,
+    });
+  } else {
+    await target.fill(selector, String(text));
+  }
   return { ok: true, lastError: s.lastError };
 }
 
@@ -359,7 +491,9 @@ export async function browseHumanType({ sessionId, selector, text, frameUrl, typ
 export async function browsePreWarm({ sessionId, durationMs = 3000 } = {}) {
   const s = requireSession(sessionId);
   const budget = Math.max(1000, Math.min(10000, Number(durationMs) || 3000));
-  await humanPreWarm(s.page, budget);
+  await withTimeout(humanPreWarm(s.page, budget), budget + 6000, 'browsePreWarm').catch((e) => {
+    s.lastError = `preWarm: ${e.message}`;
+  });
   return { ok: true, durationMs: budget, lastError: s.lastError };
 }
 
@@ -375,10 +509,101 @@ export async function browseHumanScroll({ sessionId, deltaY = 300, steps = 4 } =
   for (let i = 0; i < numSteps; i++) {
     // Slightly varied step size for human-like rhythm.
     const jitteredDelta = perStep + (Math.random() - 0.5) * perStep * 0.3;
-    await s.page.mouse.wheel(0, jitteredDelta);
+    await withTimeout(s.page.mouse.wheel(0, jitteredDelta), 3000, 'humanScroll wheel').catch(() => {});
     await humanPause(200, 800);
   }
   return { ok: true, scrolled: totalDelta, steps: numSteps, lastError: s.lastError };
 }
 
-export { evictIdle as browseEvictIdle, activeCount as browseActiveCount };
+/**
+ * Move the native mouse pointer directly to an (x, y) coordinate.
+ * Produces real isTrusted=true pointer events on the page.
+ */
+export async function browseNativeMouseMove({ sessionId, x, y } = {}) {
+  const s = requireSession(sessionId);
+  const cursor = await humanNativeMouseMove(s.page, x, y);
+  return { ok: true, cursor, lastError: s.lastError };
+}
+
+/**
+ * Discover PerimeterX / HUMAN Security sensor iframes on the page,
+ * and dispatch native mouse movements across their area so the
+ * in-frame telemetry collector receives authentic isTrusted=true events.
+ */
+export async function browseRelaySensorEvents({ sessionId } = {}) {
+  const s = requireSession(sessionId);
+  const result = await humanRelaySensorEvents(s.page);
+  return { ok: true, ...result, lastError: s.lastError };
+}
+
+/**
+ * Check PerimeterX and DFP token readiness on the current page.
+ * Returns the state of _px3, _pxde, _pxvid, dfpStatus, and window.__pxTokens.
+ */
+export async function browsePxTokenStatus({ sessionId } = {}) {
+  const s = requireSession(sessionId);
+  const result = await s.page.evaluate(() => {
+    // 1. Read tokens intercepted from postMessage stream
+    const pxTokens = window.__pxTokens || {};
+
+    // 2. Fall back to document.cookie
+    const cookies = document.cookie || '';
+    const getCookie = (name) => {
+      const match = cookies.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+      return match ? match[1] : null;
+    };
+
+    const px3 = pxTokens.px3 || getCookie('_px3');
+    const pxde = pxTokens.pxde || getCookie('_pxde');
+    const pxvid = pxTokens.pxvid || getCookie('_pxvid');
+    const dfpStatus = pxTokens.dfpStatus || null;
+
+    // Check for __px global (PerimeterX client state)
+    const hasPxGlobal = typeof window.__px !== 'undefined';
+
+    // Check for HUMAN Security sensor iframe
+    const sensorIframe = document.querySelector(
+      'iframe[id*="HumanSensor"], iframe[id*="iHumanSensor"], ' +
+      'iframe[src*="hsprotect.net"]'
+    );
+    const sensorPresent = !!sensorIframe;
+
+    let mutablePx3 = null;
+    try {
+      if (window._px3 || window.mutablePx3) {
+        mutablePx3 = window._px3 || window.mutablePx3;
+      }
+    } catch (_) {}
+
+    return {
+      px3: px3 ? px3.slice(0, 80) + '...' : null,
+      pxde: pxde ? pxde.slice(0, 80) + '...' : null,
+      pxvid: pxvid || null,
+      dfpStatus: dfpStatus || null,
+      dfpReady: dfpStatus === 'dfp:OK' || (typeof dfpStatus === 'string' && dfpStatus.includes('OK')),
+      px3Present: !!px3 && px3.length > 10,
+      pxdePresent: !!pxde && pxde.length > 10,
+      pxvidPresent: !!pxvid && pxvid.length > 10,
+      hasPxGlobal,
+      sensorPresent,
+      mutablePx3: mutablePx3 ? String(mutablePx3).slice(0, 40) : null,
+      allTokensReady: !!px3 && px3.length > 10 && !!pxde && pxde.length > 10 && !!pxvid,
+      cookieString: cookies.slice(0, 300),
+    };
+  }).catch((e) => ({
+    error: e.message,
+    allTokensReady: false,
+    px3Present: false,
+    pxdePresent: false,
+    pxvidPresent: false,
+  }));
+
+  return { ok: true, ...result, lastError: s.lastError };
+}
+
+export {
+  evictIdle as browseEvictIdle,
+  activeCount as browseActiveCount,
+  replenishStandby as browseReplenishStandby,
+  drainStandbyPool as browseDrainStandbyPool,
+};
