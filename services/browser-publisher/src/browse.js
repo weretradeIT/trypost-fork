@@ -321,6 +321,16 @@ export function resolveFrameTarget(s, frameUrl) {
 export async function browseClick({ sessionId, selector, frameUrl, force = false } = {}) {
   const s = requireSession(sessionId);
   if (!selector) { const e = new Error('click requires a selector'); e.status = 400; throw e; }
+
+  // Clean up blocking modal backdrop overlays if present
+  await s.page.evaluate(() => {
+    const blocking = ['#cmpbox2', '#cmpbox', '.cmpboxBG', '.modal-backdrop', '#platinum_country_modal', '.country-modal-backdrop'];
+    for (const sel of blocking) {
+      const el = document.querySelector(sel);
+      if (el) el.remove();
+    }
+  }).catch(() => {});
+
   const target = resolveFrameTarget(s, frameUrl);
   const isFrameTarget = target !== s.page;
   // Human-ish: move to the element, small pre-pause, click (main page only).
@@ -454,11 +464,25 @@ export function browseSessions() {
 export async function browseHumanClick({ sessionId, selector, frameUrl } = {}) {
   const s = requireSession(sessionId);
   if (!selector) { const e = new Error('human_click requires a selector'); e.status = 400; throw e; }
+
+  // Clean up blocking modal backdrop overlays if present
+  await s.page.evaluate(() => {
+    const blockingSelectors = ['#cmpbox2', '#cmpbox', '.cmpboxBG', '.modal-backdrop', '#platinum_country_modal', '.country-modal-backdrop'];
+    for (const sel of blockingSelectors) {
+      const el = document.querySelector(sel);
+      if (el) el.remove();
+    }
+  }).catch(() => {});
+
   const target = resolveFrameTarget(s, frameUrl);
-  if (target === s.page) {
+  try {
     await humanBezierClick(target, selector);
-  } else {
-    await target.click(selector, { timeout: 30000 });
+  } catch (err) {
+    if (target !== s.page) {
+      await target.click(selector, { timeout: 10000, force: true });
+    } else {
+      throw err;
+    }
   }
   await s.page.waitForLoadState('domcontentloaded', { timeout: NAV_TIMEOUT_MS }).catch(() => {});
   return { url: s.page.url(), title: await s.page.title().catch(() => ''), lastError: s.lastError };
@@ -472,12 +496,22 @@ export async function browseHumanClick({ sessionId, selector, frameUrl } = {}) {
 export async function browseHumanType({ sessionId, selector, text, frameUrl, typoProbability } = {}) {
   const s = requireSession(sessionId);
   if (!selector || text == null) { const e = new Error('human_type requires selector and text'); e.status = 400; throw e; }
+
+  // Clean up blocking modal backdrop overlays if present
+  await s.page.evaluate(() => {
+    const blockingSelectors = ['#cmpbox2', '#cmpbox', '.cmpboxBG', '.modal-backdrop', '#platinum_country_modal', '.country-modal-backdrop'];
+    for (const sel of blockingSelectors) {
+      const el = document.querySelector(sel);
+      if (el) el.remove();
+    }
+  }).catch(() => {});
+
   const target = resolveFrameTarget(s, frameUrl);
-  if (target === s.page) {
+  try {
     await humanNativeType(target, selector, String(text), {
       typoProbability: typoProbability != null ? Number(typoProbability) : undefined,
     });
-  } else {
+  } catch (_) {
     await target.fill(selector, String(text));
   }
   return { ok: true, lastError: s.lastError };

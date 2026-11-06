@@ -246,7 +246,8 @@ export async function humanBezierMove(page, startX, startY, targetX, targetY, op
   const cp2x = startX + dx * 0.66 + perpX * arcOffset * 0.6;
   const cp2y = startY + dy * 0.66 + perpY * arcOffset * 0.6;
 
-  const vp = (typeof page.viewportSize === 'function' && page.viewportSize()) || { width: 1280, height: 720 };
+  const rootPage = typeof page.page === 'function' ? page.page() : page;
+  const vp = (typeof rootPage.viewportSize === 'function' && rootPage.viewportSize()) || { width: 1280, height: 720 };
 
   for (let i = 1; i <= numSteps; i++) {
     const t = i / numSteps;
@@ -266,23 +267,26 @@ export async function humanBezierMove(page, startX, startY, targetX, targetY, op
     x = Math.max(1, Math.min(vp.width - 1, x));
     y = Math.max(1, Math.min(vp.height - 1, y));
 
-    await page.mouse.move(x, y);
+    await rootPage.mouse.move(x, y);
 
     // Inter-step delay derived from eased velocity profile.
     const stepDelay = movementTimeMs / numSteps;
     await sleep(Math.max(2, stepDelay + gaussianRandom(0, stepDelay * 0.15)));
   }
 
-  _setCursor(page, targetX, targetY);
+  _setCursor(rootPage, targetX, targetY);
 }
 
 /**
  * Full Bézier-path click cycle on an element matched by `selector`.
+ * Handles both top-level Page targets and nested Frame targets with
+ * frame bounding-box offset calculation.
  *
  * 1. Resolve element bounding rect and pick a Gaussian-jittered click point.
- * 2. Move from last known cursor position along a Bézier arc.
- * 3. Pre-click hover pause (30-80 ms).
- * 4. mousedown → dwell (40-120 ms) → slight position shift → mouseup.
+ * 2. Translate coordinates by frame bounding-box if targeting an iframe.
+ * 3. Move from last known cursor position along a Bézier arc.
+ * 4. Pre-click hover pause (30-80 ms).
+ * 5. mousedown → dwell (40-120 ms) → slight position shift → mouseup.
  *
  * @param {import('playwright').Page | import('playwright').Frame} page
  * @param {string} selector
@@ -291,6 +295,25 @@ export async function humanBezierMove(page, startX, startY, targetX, targetY, op
  */
 export async function humanBezierClick(page, selector, opts = {}) {
   if (!selector) throw new Error('humanBezierClick requires a selector');
+
+  const rootPage = typeof page.page === 'function' ? page.page() : page;
+
+  let offsetX = 0;
+  let offsetY = 0;
+  if (typeof page.frameElement === 'function') {
+    try {
+      const frameEl = await page.frameElement();
+      if (frameEl) {
+        const frameBox = await frameEl.boundingBox();
+        if (frameBox) {
+          offsetX = frameBox.x;
+          offsetY = frameBox.y;
+        }
+      }
+    } catch (_) {
+      // Ignore cross-origin frameElement or detached frame issues
+    }
+  }
 
   const box = await page.evaluate((sel) => {
     const el = document.querySelector(sel);
@@ -305,16 +328,16 @@ export async function humanBezierClick(page, selector, opts = {}) {
     return;
   }
 
-  // Gaussian-jittered click point within element bounds (±40 % from center).
-  const clickX = box.x + box.width / 2 + gaussianRandom(0, box.width * 0.2);
-  const clickY = box.y + box.height / 2 + gaussianRandom(0, box.height * 0.2);
+  // Gaussian-jittered click point within element bounds (±40 % from center) + frame offset.
+  const clickX = offsetX + box.x + box.width / 2 + gaussianRandom(0, box.width * 0.2);
+  const clickY = offsetY + box.y + box.height / 2 + gaussianRandom(0, box.height * 0.2);
 
-  const vp = (typeof page.viewportSize === 'function' && page.viewportSize()) || { width: 1280, height: 720 };
+  const vp = (typeof rootPage.viewportSize === 'function' && rootPage.viewportSize()) || { width: 1280, height: 720 };
   const clampedX = Math.max(1, Math.min(vp.width - 1, clickX));
   const clampedY = Math.max(1, Math.min(vp.height - 1, clickY));
 
-  const cursor = _getCursor(page);
-  await humanBezierMove(page, cursor.x, cursor.y, clampedX, clampedY, {
+  const cursor = _getCursor(rootPage);
+  await humanBezierMove(rootPage, cursor.x, cursor.y, clampedX, clampedY, {
     targetWidth: Math.max(box.width, 8),
   });
 
@@ -322,12 +345,12 @@ export async function humanBezierClick(page, selector, opts = {}) {
   await sleep(randInt(30, 80));
 
   // mousedown → dwell → slight shift → mouseup (replicating human micro-motion).
-  await page.mouse.down();
+  await rootPage.mouse.down();
   await sleep(randInt(40, 120));
-  await page.mouse.move(clampedX + gaussianRandom(0, 1.5), clampedY + gaussianRandom(0, 1.5));
-  await page.mouse.up();
+  await rootPage.mouse.move(clampedX + gaussianRandom(0, 1.5), clampedY + gaussianRandom(0, 1.5));
+  await rootPage.mouse.up();
 
-  _setCursor(page, clampedX, clampedY);
+  _setCursor(rootPage, clampedX, clampedY);
 }
 
 // --- QWERTZ bi-gram typing model --------------------------------------------
@@ -411,15 +434,16 @@ function _keystrokeDelay(prev, cur) {
  */
 export async function humanNativeType(page, selector, text, opts = {}) {
   const { typoProbability = 0.025 } = opts;
+  const rootPage = typeof page.page === 'function' ? page.page() : page;
 
   // Focus via Bézier click (produces trusted pointer events).
   await humanBezierClick(page, selector);
   await sleep(randInt(50, 150));
 
   // Clear existing content: Ctrl+A → Backspace.
-  await page.keyboard.press('Control+a');
+  await rootPage.keyboard.press('Control+a');
   await sleep(randInt(30, 80));
-  await page.keyboard.press('Backspace');
+  await rootPage.keyboard.press('Backspace');
   await sleep(randInt(40, 120));
 
   let prevChar = '';
@@ -431,14 +455,14 @@ export async function humanNativeType(page, selector, text, opts = {}) {
     if (Math.random() < typoProbability && _QWERTZ_ADJACENT[lc]) {
       const adjacents = _QWERTZ_ADJACENT[lc];
       const wrong = adjacents[Math.floor(Math.random() * adjacents.length)];
-      await page.keyboard.press(wrong);
+      await rootPage.keyboard.press(wrong);
       await sleep(randInt(80, 200));
-      await page.keyboard.press('Backspace');
+      await rootPage.keyboard.press('Backspace');
       await sleep(randInt(60, 150));
     }
 
     // Type the correct character.
-    await page.keyboard.press(ch);
+    await rootPage.keyboard.press(ch);
 
     // Inter-key delay.
     const delay = _keystrokeDelay(prevChar, ch);
